@@ -1,0 +1,320 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id           String      @id @default(cuid())
+  name         String
+  email        String      @unique
+  passwordHash String
+  role         String      @default("OWNER") // SUPER_ADMIN, OWNER, STAFF
+  restaurantId String?
+  restaurant   Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  resetToken       String?
+  resetTokenExpiry DateTime?
+
+  @@index([restaurantId])
+  @@index([email])
+}
+
+model Package {
+  id          String       @id @default(cuid())
+  name        String       // BASIC, STANDARD, PREMIUM
+  slug        String       @unique // basic, standard, premium
+  price       Float        // Monthly price in INR (e.g. 499, 1499, 2999)
+  features    String       // JSON array of enabled feature keys, e.g. ["menu","qr","website","orders","reviewReward"]
+  description String?
+  active      Boolean      @default(true)
+  restaurants Restaurant[]
+  invoices    Invoice[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Restaurant {
+  id               String   @id @default(cuid())
+  name             String
+  slug             String   @unique
+  logo             String?
+  cover            String?
+  address          String?
+  city             String?
+  phone            String?
+  timings          String?  // e.g. "11:00 AM - 11:00 PM"
+  googleReviewLink String?
+  status           String   @default("ACTIVE") // PENDING, ACTIVE, SUSPENDED
+  packageId        String
+  package          Package  @relation(fields: [packageId], references: [id])
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  users             User[]
+  categories        MenuCategory[]
+  items             MenuItem[]
+  tables            Table[]
+  orders            Order[]
+  websiteConfig     WebsiteConfig?
+  reviewSettings    ReviewSettings?
+  rewardRules       RewardRule[]
+  reviewSubmissions ReviewSubmission[]
+  coupons           Coupon[]
+  invoices          Invoice[]
+  supportTickets    SupportTicket[]
+  scanEvents        ScanEvent[]
+
+  @@index([slug])
+  @@index([packageId])
+}
+
+model MenuCategory {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String
+  order        Int        @default(0)
+  active       Boolean    @default(true)
+  items        MenuItem[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([restaurantId])
+}
+
+model MenuItem {
+  id           String        @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  categoryId   String
+  category     MenuCategory  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name         String
+  description  String?
+  price        Float
+  image        String?
+  isVeg        Boolean       @default(true)
+  isAvailable  Boolean       @default(true)
+  tags         String?       // JSON array or comma separated: ["Bestseller", "Spicy"]
+  order        Int           @default(0)
+  orderItems   OrderItem[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([restaurantId])
+  @@index([categoryId])
+}
+
+model Table {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  number       Int
+  createdAt    DateTime   @default(now())
+
+  @@unique([restaurantId, number])
+  @@index([restaurantId])
+}
+
+model Order {
+  id           String      @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  tableNumber  Int?
+  customerName String?
+  phone        String?
+  notes        String?
+  total        Float       @default(0)
+  status       String      @default("NEW") // NEW, PREPARING, READY, COMPLETED, CANCELLED
+  paymentMode  String      @default("PAY_AT_COUNTER") // PAY_AT_COUNTER, CASH, UPI, ONLINE
+  items        OrderItem[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([restaurantId])
+  @@index([status])
+}
+
+model OrderItem {
+  id         String    @id @default(cuid())
+  orderId    String
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId String?
+  menuItem   MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  name       String
+  price      Float
+  quantity   Int       @default(1)
+  notes      String?
+
+  @@index([orderId])
+}
+
+model WebsiteConfig {
+  id           String     @id @default(cuid())
+  restaurantId String     @unique
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  template     String     @default("MODERN") // MODERN, TRADITIONAL, MINIMAL
+  sections     String     // JSON containing hero, about, gallery, hours, contact, map
+  published    Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model ReviewSettings {
+  id                String     @id @default(cuid())
+  restaurantId      String     @unique
+  restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  popupEnabled      Boolean    @default(true)
+  popupDelaySeconds Int        @default(6)
+  autoApprove       Boolean    @default(true)
+  cooldownDays      Int        @default(30)
+  minBill           Float      @default(0)
+  googleReviewLink  String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+}
+
+model RewardRule {
+  id           String             @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  label        String             // e.g. "20% Off on next visit", "Free Gulab Jamun", "Flat ₹100 Off"
+  type         String             // PERCENT, FLAT, FREE_ITEM, NONE
+  value        Float              @default(0)
+  weight       Int                @default(10) // Probability weight (e.g. 50, 30, 20)
+  expiryDays   Int                @default(30)
+  usageLimit   Int                @default(1)
+  active       Boolean            @default(true)
+  coupons      Coupon[]
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([restaurantId])
+}
+
+model ReviewSubmission {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String
+  phone        String
+  screenshotUrl String
+  imageHash    String     // SHA-256 hash to detect duplicate uploaded screenshots
+  status       String     @default("PENDING") // PENDING, APPROVED, REJECTED
+  reason       String?
+  coupon       Coupon?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([restaurantId])
+  @@index([imageHash])
+  @@index([phone])
+}
+
+model Coupon {
+  id              String            @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  rewardRuleId    String
+  rewardRule      RewardRule        @relation(fields: [rewardRuleId], references: [id], onDelete: Cascade)
+  submissionId    String?           @unique
+  submission      ReviewSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  code            String            @unique
+  phone           String?
+  status          String            @default("ACTIVE") // ACTIVE, REDEEMED, EXPIRED
+  expiresAt       DateTime
+  redeemedAt      DateTime?
+  billAmount      Float?
+  discountApplied Float?
+  createdAt       DateTime          @default(now())
+
+  @@index([restaurantId])
+  @@index([code])
+}
+
+model Invoice {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  packageId    String
+  package      Package    @relation(fields: [packageId], references: [id])
+  amount       Float
+  status       String     @default("PAID") // PAID, PENDING, FAILED
+  paymentId    String?    // e.g. "INV_MOCK_12345"
+  createdAt    DateTime   @default(now())
+
+  @@index([restaurantId])
+}
+
+model SupportTicket {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  subject      String
+  message      String
+  reply        String?
+  status       String     @default("OPEN") // OPEN, RESOLVED
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([restaurantId])
+}
+
+model ScanEvent {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  source       String     @default("MENU_QR") // MENU_QR, TABLE_QR, DIRECT
+  tableNumber  Int?
+  timestamp    DateTime   @default(now())
+
+  @@index([restaurantId])
+  @@index([timestamp])
+}
+
+model SystemAnnouncement {
+  id         String    @id @default(cuid())
+  title      String
+  message    String
+  type       String    @default("INFO") // INFO, WARNING, PROMO, ALERT
+  targetPlan String    @default("ALL")  // ALL, BASIC, STANDARD, PREMIUM
+  active     Boolean   @default(true)
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([active])
+}
+
+model PromoCode {
+  id              String    @id @default(cuid())
+  code            String    @unique
+  discountPercent Float?    // e.g. 20 for 20% off
+  discountAmount  Float?    // e.g. 500 for ₹500 flat off
+  maxUses         Int       @default(100)
+  usedCount       Int       @default(0)
+  active          Boolean   @default(true)
+  expiresAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([code])
+  @@index([active])
+}
+
+model AuditLog {
+  id           String    @id @default(cuid())
+  action       String    // RESTAURANT_REGISTERED, PLAN_UPGRADED, STATUS_CHANGED, IMPERSONATION_STARTED, MANUAL_PAYMENT, PROMO_CREATED
+  details      String
+  actorEmail   String
+  restaurantId String?
+  ipAddress    String?
+  createdAt    DateTime  @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+}
