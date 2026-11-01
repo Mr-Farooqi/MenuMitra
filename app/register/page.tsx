@@ -179,6 +179,14 @@ function RegisterForm() {
     }
   };
 
+  const handleRemovePromo = () => {
+    setAppliedPromo(null);
+    setDiscountAmount(0);
+    setPromoMessage(null);
+    setPromoInput("");
+    setFormData((prev) => ({ ...prev, promoCode: "" }));
+  };
+
   // Auto slug generator
   const handleRestaurantNameChange = (name: string) => {
     const generatedSlug = name
@@ -286,10 +294,16 @@ function RegisterForm() {
     setSubmitting(true);
 
     try {
+      const payload = {
+        ...formData,
+        utrReference: cleanUtr,
+        promoCode: appliedPromo || promoInput.trim() || formData.promoCode || undefined,
+      };
+
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -793,22 +807,34 @@ function RegisterForm() {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="Promo Code (e.g. SAVE20)"
+                  placeholder="Promo Code (e.g. NEW098)"
                   value={promoInput}
                   onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
                   disabled={validatingPromo || !!appliedPromo}
                   className="flex-1 px-3.5 py-2 text-xs rounded-xl border border-stone-300 uppercase font-mono tracking-wider focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={validatingPromo || !promoInput.trim() || !!appliedPromo}
-                  onClick={handleApplyPromo}
-                  className="shrink-0 text-xs"
-                >
-                  {validatingPromo ? "Verifying..." : appliedPromo ? "Applied ✓" : "Apply Voucher"}
-                </Button>
+                {appliedPromo ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRemovePromo}
+                    className="shrink-0 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                  >
+                    Remove
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={validatingPromo || !promoInput.trim()}
+                    onClick={handleApplyPromo}
+                    className="shrink-0 text-xs"
+                  >
+                    {validatingPromo ? "Verifying..." : "Apply Voucher"}
+                  </Button>
+                )}
               </div>
               {promoMessage && (
                 <p className="text-xs text-emerald-600 font-semibold">{promoMessage}</p>

@@ -71,188 +71,194 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid package selected", code: "INVALID_PACKAGE" }, { status: 400 });
     }
 
-    let finalAmount = pkg.price;
-    let discountAmount = 0;
-    let appliedPromo: string | null = null;
-
-    if (data.promoCode) {
-      const cleanCode = data.promoCode.trim().toUpperCase();
-      const promo = await prisma.promoCode.findUnique({ where: { code: cleanCode } });
-      if (
-        promo &&
-        promo.active &&
-        (!promo.expiresAt || promo.expiresAt > new Date()) &&
-        promo.usedCount < promo.maxUses
-      ) {
-        if (promo.discountPercent) {
-          discountAmount = Math.round(((pkg.price * promo.discountPercent) / 100) * 100) / 100;
-        } else if (promo.discountAmount) {
-          discountAmount = Math.min(promo.discountAmount, pkg.price);
-        }
-        finalAmount = Math.max(0, pkg.price - discountAmount);
-        appliedPromo = promo.code;
-
-        await prisma.promoCode.update({
-          where: { id: promo.id },
-          data: { usedCount: { increment: 1 } },
-        });
-      }
-    }
-
     const passwordHash = await hashPassword(data.password);
 
-    // Create Restaurant and Owner in transaction
-    const newRestaurant = await prisma.$transaction(async (tx) => {
-      const rest = await tx.restaurant.create({
-        data: {
-          name: data.restaurantName,
-          slug: data.slug.toLowerCase(),
-          packageId: pkg.id,
-          phone: data.phone || "",
-          city: data.city || "",
-          address: data.address || "",
-          timings: data.timings || "11:00 AM - 11:00 PM",
-          googleReviewLink: data.googleReviewLink || "",
-          logo: data.logo || null,
-          cover: data.cover || null,
-          status: "PENDING_PAYMENT", // Pending admin verification of UPI payment
-        },
-      });
+    // Create Restaurant, Owner, Settings, and initial records in transaction
+    const newRestaurant = await prisma.$transaction(
+      async (tx) => {
+        let finalAmount = pkg.price;
+        let discountAmount = 0;
+        let appliedPromo: string | null = null;
 
-      // Create owner user
-      const user = await tx.user.create({
-        data: {
-          name: data.name,
-          email: data.email.toLowerCase(),
-          passwordHash,
-          role: "OWNER",
-          restaurantId: rest.id,
-        },
-      });
+        if (data.promoCode && data.promoCode.trim()) {
+          const cleanCode = data.promoCode.trim().toUpperCase();
+          const promo = await tx.promoCode.findUnique({ where: { code: cleanCode } });
+          if (
+            promo &&
+            promo.active &&
+            (!promo.expiresAt || promo.expiresAt > new Date()) &&
+            promo.usedCount < promo.maxUses
+          ) {
+            if (promo.discountPercent) {
+              discountAmount = Math.round(((pkg.price * promo.discountPercent) / 100) * 100) / 100;
+            } else if (promo.discountAmount) {
+              discountAmount = Math.min(promo.discountAmount, pkg.price);
+            }
+            finalAmount = Math.max(0, pkg.price - discountAmount);
+            appliedPromo = promo.code;
 
-      // Create default review settings
-      await tx.reviewSettings.create({
-        data: {
-          restaurantId: rest.id,
-          popupEnabled: true,
-          popupDelaySeconds: 6,
-          autoApprove: true,
-          cooldownDays: 30,
-          minBill: 0,
-          googleReviewLink: data.googleReviewLink || "",
-        },
-      });
+            await tx.promoCode.update({
+              where: { id: promo.id },
+              data: { usedCount: { increment: 1 } },
+            });
+          }
+        }
 
-      // Create default website config
-      await tx.websiteConfig.create({
-        data: {
-          restaurantId: rest.id,
-          template: "MODERN",
-          published: true,
-          sections: JSON.stringify({
-            hero: {
-              headline: `Welcome to ${rest.name}`,
-              subheadline: "Delicious food prepared with the freshest ingredients and passion.",
-              ctaText: "View Menu",
-              badge: "Fresh & Tasty",
-            },
-            about: {
-              title: "Our Story",
-              story: `At ${rest.name}, we believe in creating memorable dining experiences with rich flavours and warm hospitality.`,
-              signatureDish: "Chef's Special Recommendation",
-            },
-            hours: {
-              weekday: data.timings || "11:00 AM – 11:00 PM",
-              weekend: data.timings || "11:00 AM – 11:30 PM",
-              note: "Dine-in and Takeaway available",
-            },
-            contact: {
-              phone: data.phone || "",
-              email: data.email || "",
-              address: `${data.address || ""}, ${data.city || ""}`,
-            },
-            gallery: [],
-          }),
-        },
-      });
-
-      // Default tables 1..4
-      for (let t = 1; t <= 4; t++) {
-        await tx.table.create({
+        const rest = await tx.restaurant.create({
           data: {
-            restaurantId: rest.id,
-            number: t,
+            name: data.restaurantName,
+            slug: data.slug.toLowerCase(),
+            packageId: pkg.id,
+            phone: data.phone || "",
+            city: data.city || "",
+            address: data.address || "",
+            timings: data.timings || "11:00 AM - 11:00 PM",
+            googleReviewLink: data.googleReviewLink || "",
+            logo: data.logo || null,
+            cover: data.cover || null,
+            status: "PENDING_PAYMENT", // Pending admin verification of UPI payment
           },
         });
+
+        // Create owner user
+        const user = await tx.user.create({
+          data: {
+            name: data.name,
+            email: data.email.toLowerCase(),
+            passwordHash,
+            role: "OWNER",
+            restaurantId: rest.id,
+          },
+        });
+
+        // Create default review settings
+        await tx.reviewSettings.create({
+          data: {
+            restaurantId: rest.id,
+            popupEnabled: true,
+            popupDelaySeconds: 6,
+            autoApprove: true,
+            cooldownDays: 30,
+            minBill: 0,
+            googleReviewLink: data.googleReviewLink || "",
+          },
+        });
+
+        // Create default website config
+        await tx.websiteConfig.create({
+          data: {
+            restaurantId: rest.id,
+            template: "MODERN",
+            published: true,
+            sections: JSON.stringify({
+              hero: {
+                headline: `Welcome to ${rest.name}`,
+                subheadline: "Delicious food prepared with the freshest ingredients and passion.",
+                ctaText: "View Menu",
+                badge: "Fresh & Tasty",
+              },
+              about: {
+                title: "Our Story",
+                story: `At ${rest.name}, we believe in creating memorable dining experiences with rich flavours and warm hospitality.`,
+                signatureDish: "Chef's Special Recommendation",
+              },
+              hours: {
+                weekday: data.timings || "11:00 AM – 11:00 PM",
+                weekend: data.timings || "11:00 AM – 11:30 PM",
+                note: "Dine-in and Takeaway available",
+              },
+              contact: {
+                phone: data.phone || "",
+                email: data.email || "",
+                address: `${data.address || ""}, ${data.city || ""}`,
+              },
+              gallery: [],
+            }),
+          },
+        });
+
+        // Default tables 1..4 (single query batch insert)
+        await tx.table.createMany({
+          data: [
+            { restaurantId: rest.id, number: 1 },
+            { restaurantId: rest.id, number: 2 },
+            { restaurantId: rest.id, number: 3 },
+            { restaurantId: rest.id, number: 4 },
+          ],
+        });
+
+        // Default first menu category
+        const firstCat = await tx.menuCategory.create({
+          data: {
+            restaurantId: rest.id,
+            name: data.firstCategoryName || "Chef's Specials",
+            order: 0,
+          },
+        });
+
+        // Default starter item
+        await tx.menuItem.create({
+          data: {
+            restaurantId: rest.id,
+            categoryId: firstCat.id,
+            name: "Crispy Paneer Bites",
+            description: "Golden spiced cottage cheese tossed with aromatic herbs",
+            price: 220,
+            isVeg: true,
+            isAvailable: true,
+            tags: JSON.stringify(["Bestseller"]),
+            order: 0,
+          },
+        });
+
+        // Default reward rule for review rewards
+        await tx.rewardRule.create({
+          data: {
+            restaurantId: rest.id,
+            label: "15% Off on Next Visit",
+            type: "PERCENT",
+            value: 15,
+            weight: 50,
+            expiryDays: 30,
+            usageLimit: 1,
+            active: true,
+          },
+        });
+
+        // Record initial subscription payment request
+        await tx.subscriptionPayment.create({
+          data: {
+            restaurantId: rest.id,
+            packageId: pkg.id,
+            amount: finalAmount,
+            originalAmount: pkg.price,
+            discountAmount,
+            promoCode: appliedPromo,
+            paymentMethod: "UPI_QR",
+            utrReference: data.utrReference?.trim() || null,
+            payerPhone: data.phone || null,
+            payerName: data.name,
+            status: "PENDING",
+          },
+        });
+
+        // Audit log entry
+        await tx.auditLog.create({
+          data: {
+            action: "RESTAURANT_REGISTERED",
+            details: `Registered restaurant "${rest.name}" with plan "${pkg.name}". Payment status: PENDING (UTR: ${data.utrReference || "N/A"})`,
+            actorEmail: data.email.toLowerCase(),
+            restaurantId: rest.id,
+          },
+        });
+
+        return { rest, user };
+      },
+      {
+        maxWait: 10000, // Wait up to 10s to acquire connection from Neon pool
+        timeout: 25000, // 25s execution timeout to prevent Neon latency dropouts
       }
-
-      // Default first menu category
-      const firstCat = await tx.menuCategory.create({
-        data: {
-          restaurantId: rest.id,
-          name: data.firstCategoryName || "Chef's Specials",
-          order: 0,
-        },
-      });
-
-      // Default starter item
-      await tx.menuItem.create({
-        data: {
-          restaurantId: rest.id,
-          categoryId: firstCat.id,
-          name: "Crispy Paneer Bites",
-          description: "Golden spiced cottage cheese tossed with aromatic herbs",
-          price: 220,
-          isVeg: true,
-          isAvailable: true,
-          tags: JSON.stringify(["Bestseller"]),
-          order: 0,
-        },
-      });
-
-      // Default reward rule for review rewards
-      await tx.rewardRule.create({
-        data: {
-          restaurantId: rest.id,
-          label: "15% Off on Next Visit",
-          type: "PERCENT",
-          value: 15,
-          weight: 50,
-          expiryDays: 30,
-          usageLimit: 1,
-          active: true,
-        },
-      });
-
-      // Record initial subscription payment request
-      await tx.subscriptionPayment.create({
-        data: {
-          restaurantId: rest.id,
-          packageId: pkg.id,
-          amount: finalAmount,
-          originalAmount: pkg.price,
-          discountAmount,
-          promoCode: appliedPromo,
-          paymentMethod: "UPI_QR",
-          utrReference: data.utrReference?.trim() || null,
-          payerPhone: data.phone || null,
-          payerName: data.name,
-          status: "PENDING",
-        },
-      });
-
-      // Audit log entry
-      await tx.auditLog.create({
-        data: {
-          action: "RESTAURANT_REGISTERED",
-          details: `Registered restaurant "${rest.name}" with plan "${pkg.name}". Payment status: PENDING (UTR: ${data.utrReference || "N/A"})`,
-          actorEmail: data.email.toLowerCase(),
-          restaurantId: rest.id,
-        },
-      });
-
-      return { rest, user };
-    });
+    );
 
     // Create session token for immediate login
     const token = await createSessionToken({
@@ -282,8 +288,10 @@ export async function POST(req: NextRequest) {
     return response;
   } catch (error) {
     console.error("Registration error:", error);
+    const errorMessage =
+      error instanceof Error ? error.message : "Failed to register restaurant. Please check your inputs.";
     return NextResponse.json(
-      { error: "Failed to register restaurant. Please check your inputs.", code: "SERVER_ERROR" },
+      { error: errorMessage, code: "SERVER_ERROR" },
       { status: 500 }
     );
   }

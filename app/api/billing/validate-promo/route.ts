@@ -1,18 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (!session || (session.role !== "OWNER" && session.role !== "SUPER_ADMIN")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   try {
     const { code, planSlug, packagePrice } = await req.json();
-    if (!code) {
+    if (!code || typeof code !== "string" || !code.trim()) {
       return NextResponse.json({ error: "Promo code required" }, { status: 400 });
     }
 
