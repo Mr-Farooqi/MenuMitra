@@ -1,13 +1,16 @@
-import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { getSession, getSessionFromRequest } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseFeatures } from "@/lib/feature-gate";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const session = await getSession();
+    let session = await getSessionFromRequest(req);
+    if (!session) {
+      session = await getSession().catch(() => null);
+    }
     if (!session) {
       return NextResponse.json({ user: null }, { status: 401 });
     }
@@ -34,6 +37,24 @@ export async function GET() {
 
     const features = user.restaurant ? parseFeatures(user.restaurant.package.features) : [];
 
+    const restaurantPayload = user.restaurant
+      ? {
+          id: user.restaurant.id,
+          name: user.restaurant.name,
+          slug: user.restaurant.slug,
+          logo: user.restaurant.logo,
+          cover: user.restaurant.cover,
+          phone: user.restaurant.phone,
+          timings: user.restaurant.timings,
+          address: user.restaurant.address,
+          city: user.restaurant.city,
+          googleReviewLink: user.restaurant.googleReviewLink,
+          status: user.restaurant.status,
+          package: user.restaurant.package,
+          features,
+        }
+      : null;
+
     return NextResponse.json({
       user: {
         id: user.id,
@@ -41,24 +62,10 @@ export async function GET() {
         email: user.email,
         role: user.role,
         impersonatedBy: session.impersonatedBy || null,
-        restaurant: user.restaurant
-          ? {
-              id: user.restaurant.id,
-              name: user.restaurant.name,
-              slug: user.restaurant.slug,
-              logo: user.restaurant.logo,
-              cover: user.restaurant.cover,
-              phone: user.restaurant.phone,
-              timings: user.restaurant.timings,
-              address: user.restaurant.address,
-              city: user.restaurant.city,
-              googleReviewLink: user.restaurant.googleReviewLink,
-              status: user.restaurant.status,
-              package: user.restaurant.package,
-              features,
-            }
-          : null,
+        restaurant: restaurantPayload,
       },
+      restaurant: restaurantPayload,
+      features,
     });
   } catch (error) {
     console.error("Session check error:", error);

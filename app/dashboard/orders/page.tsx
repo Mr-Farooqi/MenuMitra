@@ -162,6 +162,15 @@ export default function KitchenKanbanPage() {
   const readyOrders = orders.filter((o) => o.status === "READY");
   const historyOrders = orders.filter((o) => o.status === "COMPLETED" || o.status === "CANCELLED");
 
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
+        <RefreshCw className="w-8 h-8 animate-spin text-brand-500" />
+        <p className="text-sm font-medium text-stone-500">Loading kitchen orders...</p>
+      </div>
+    );
+  }
+
   return (
     <FeatureGate feature="orders" features={userFeatures}>
       <div className="space-y-6">

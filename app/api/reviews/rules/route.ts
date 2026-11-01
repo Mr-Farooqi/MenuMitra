@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getSession } from "@/lib/auth";
+import { getSession, getSessionFromRequest } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireFeature } from "@/lib/feature-gate";
 
@@ -16,8 +16,11 @@ const ruleSchema = z.object({
   active: z.boolean().default(true),
 });
 
-export async function GET() {
-  const session = await getSession();
+export async function GET(req: NextRequest) {
+  let session = await getSessionFromRequest(req);
+  if (!session) {
+    session = await getSession().catch(() => null);
+  }
   if (!session || !session.restaurantId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

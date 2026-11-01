@@ -153,17 +153,22 @@ export default function ReviewsDashboardPage() {
       const meRes = await fetch("/api/auth/me");
       if (meRes.ok) {
         const meData = await meRes.json();
-        if (meData.restaurant?.slug) {
-          setRestaurantSlug(meData.restaurant.slug);
-        }
-        if (meData.restaurant?.package?.features) {
-          try {
-            const parsed = typeof meData.restaurant.package.features === "string"
-              ? JSON.parse(meData.restaurant.package.features)
-              : meData.restaurant.package.features;
-            setUserFeatures(parsed || []);
-          } catch {
-            setUserFeatures([]);
+        const restaurant = meData.user?.restaurant || meData.restaurant;
+        if (restaurant) {
+          if (restaurant.slug) {
+            setRestaurantSlug(restaurant.slug);
+          }
+          if (restaurant.features && Array.isArray(restaurant.features)) {
+            setUserFeatures(restaurant.features);
+          } else if (restaurant.package?.features) {
+            try {
+              const parsed = typeof restaurant.package.features === "string"
+                ? JSON.parse(restaurant.package.features)
+                : restaurant.package.features;
+              setUserFeatures(parsed || []);
+            } catch {
+              setUserFeatures([]);
+            }
           }
         }
       }
@@ -437,6 +442,15 @@ export default function ReviewsDashboardPage() {
     if (couponFilter === "ALL") return true;
     return c.status === couponFilter;
   });
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
+        <RefreshCw className="w-8 h-8 animate-spin text-amber-500" />
+        <p className="text-sm font-medium text-stone-500">Loading Reviews & Rewards...</p>
+      </div>
+    );
+  }
 
   return (
     <FeatureGate feature="reviewReward" features={userFeatures}>
