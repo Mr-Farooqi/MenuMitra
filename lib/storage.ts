@@ -12,9 +12,11 @@ export interface StorageResult {
 export const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 export const ALLOWED_IMAGE_TYPES = [
   "image/jpeg",
+  "image/jpg",
   "image/png",
   "image/webp",
   "image/gif",
+  "image/avif",
 ];
 
 export class StorageError extends Error {
@@ -35,9 +37,13 @@ export function validateUpload(file: File, options: { maxSizeBytes?: number; all
     );
   }
 
-  if (!allowed.includes(file.type)) {
+  const ext = (path.extname(file.name || "") || "").toLowerCase();
+  const allowedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"];
+  const isTypeValid = allowed.includes(file.type) || allowedExtensions.includes(ext);
+
+  if (!isTypeValid) {
     throw new StorageError(
-      `File type ${file.type} is not supported. Allowed formats: JPG, PNG, WEBP, GIF`,
+      `File type "${file.type || ext}" is not supported. Allowed formats: JPG, PNG, WEBP, GIF`,
       "INVALID_FILE_TYPE"
     );
   }

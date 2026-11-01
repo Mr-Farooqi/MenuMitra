@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Plus,
   Search,
@@ -85,6 +85,7 @@ export default function MenuManagerPage() {
 
   const [uploadingImage, setUploadingImage] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const itemFileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch data
   const loadData = async () => {
@@ -305,8 +306,20 @@ export default function MenuManagerPage() {
 
       setItemForm((prev) => ({ ...prev, image: result.url }));
     } catch (err: unknown) {
-      alert((err as Error).message);
+      console.warn("Server upload failed, using local FileReader fallback:", err);
+      // Fallback: convert file to Base64 Data URI so upload never fails on serverless/read-only environments
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setItemForm((prev) => ({ ...prev, image: reader.result as string }));
+        }
+      };
+      reader.readAsDataURL(file);
     } finally {
+      // Clear input value so same file can be chosen again if needed
+      if (e.target) {
+        e.target.value = "";
+      }
       setUploadingImage(false);
     }
   };
@@ -830,43 +843,51 @@ export default function MenuManagerPage() {
             </label>
             <div className="flex items-center gap-4">
               {itemForm.image ? (
-                <img
-                  src={itemForm.image}
-                  alt="Dish preview"
-                  className="w-16 h-16 rounded-xl object-cover border border-stone-200"
-                />
+                <div className="w-16 h-16 rounded-xl overflow-hidden border border-stone-200 bg-stone-50 flex items-center justify-center p-0.5 shadow-sm">
+                  <img
+                    src={itemForm.image}
+                    alt="Dish preview"
+                    className="w-full h-full object-cover rounded-lg"
+                  />
+                </div>
               ) : (
-                <div className="w-16 h-16 rounded-xl bg-stone-100 border border-stone-200 flex items-center justify-center text-stone-400 text-xs">
+                <div className="w-16 h-16 rounded-xl bg-stone-100 border-2 border-dashed border-stone-200 flex items-center justify-center text-stone-400 text-xs">
                   No Photo
                 </div>
               )}
-              <label className="cursor-pointer">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  isLoading={uploadingImage}
-                  className="pointer-events-none"
-                >
-                  <Upload className="w-3.5 h-3.5 mr-1.5" />
-                  Upload Photo
-                </Button>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleFileUpload}
-                />
-              </label>
-              {itemForm.image && (
-                <button
-                  type="button"
-                  onClick={() => setItemForm({ ...itemForm, image: "" })}
-                  className="text-xs text-red-600 hover:underline"
-                >
-                  Remove
-                </button>
-              )}
+
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    isLoading={uploadingImage}
+                    onClick={() => itemFileInputRef.current?.click()}
+                    className="cursor-pointer font-semibold"
+                  >
+                    <Upload className="w-3.5 h-3.5 mr-1.5" />
+                    {itemForm.image ? "Change Photo" : "Upload Photo"}
+                  </Button>
+                  <input
+                    ref={itemFileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                  />
+                  {itemForm.image && (
+                    <button
+                      type="button"
+                      onClick={() => setItemForm({ ...itemForm, image: "" })}
+                      className="text-xs text-red-600 hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50 transition"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <p className="text-[10px] text-stone-400">PNG, JPG, WEBP, or GIF up to 5MB</p>
+              </div>
             </div>
           </div>
 

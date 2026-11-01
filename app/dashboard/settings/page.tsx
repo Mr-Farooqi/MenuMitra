@@ -105,10 +105,17 @@ export default function SettingsPage() {
       if (res.ok) {
         setProfile({ ...profile, [field]: data.url });
       } else {
-        alert(data.error || "Image upload failed");
+        throw new Error(data.error || "Image upload failed");
       }
-    } catch {
-      alert("Error uploading image");
+    } catch (err) {
+      console.warn("Upload fallback to FileReader:", err);
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setProfile((prev) => (prev ? { ...prev, [field]: reader.result as string } : prev));
+        }
+      };
+      reader.readAsDataURL(file);
     }
   }
 

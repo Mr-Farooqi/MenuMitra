@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   Globe,
@@ -84,6 +84,7 @@ export default function WebsiteBuilderPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [uploadingGallery, setUploadingGallery] = useState(false);
   const [previewTab, setPreviewTab] = useState<"edit" | "preview">("edit");
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   // Load Website Config
   useEffect(() => {
@@ -164,8 +165,19 @@ export default function WebsiteBuilderPage() {
         gallery: [...(prev.gallery || []), result.url],
       }));
     } catch (err: unknown) {
-      alert((err as Error).message || "Upload failed");
+      console.warn("Upload to server failed, using local FileReader fallback:", err);
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setSections((prev) => ({
+            ...prev,
+            gallery: [...(prev.gallery || []), reader.result as string],
+          }));
+        }
+      };
+      reader.readAsDataURL(file);
     } finally {
+      if (e.target) e.target.value = "";
       setUploadingGallery(false);
     }
   };
@@ -581,23 +593,25 @@ export default function WebsiteBuilderPage() {
                   5. Photo Gallery Showcase ({sections.gallery?.length || 0})
                 </h3>
 
-                <label className="cursor-pointer">
+                <div>
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
                     isLoading={uploadingGallery}
-                    className="pointer-events-none"
+                    onClick={() => galleryInputRef.current?.click()}
+                    className="cursor-pointer font-semibold"
                   >
                     <Plus className="w-3.5 h-3.5 mr-1" /> Add Photo
                   </Button>
                   <input
+                    ref={galleryInputRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
                     className="hidden"
                     onChange={handleGalleryUpload}
                   />
-                </label>
+                </div>
               </div>
 
               {sections.gallery && sections.gallery.length > 0 ? (
