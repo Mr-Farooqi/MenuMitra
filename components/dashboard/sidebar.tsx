@@ -34,11 +34,13 @@ interface SidebarProps {
       name: string;
       slug: string;
       logo?: string | null;
+      status?: string;
       package: {
         name: string;
         slug: string;
       };
       features: string[];
+      pendingPayment?: any;
     } | null;
   };
   mobileOpen: boolean;

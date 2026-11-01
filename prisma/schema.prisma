@@ -36,6 +36,7 @@ model Package {
   active      Boolean      @default(true)
   restaurants Restaurant[]
   invoices    Invoice[]
+  subscriptionPayments SubscriptionPayment[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 }
@@ -68,6 +69,7 @@ model Restaurant {
   reviewSubmissions ReviewSubmission[]
   coupons           Coupon[]
   invoices          Invoice[]
+  subscriptionPayments SubscriptionPayment[]
   supportTickets    SupportTicket[]
   scanEvents        ScanEvent[]
 
@@ -318,3 +320,38 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
 }
+
+model SubscriptionPayment {
+  id             String     @id @default(cuid())
+  restaurantId   String
+  restaurant     Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  packageId      String
+  package        Package    @relation(fields: [packageId], references: [id])
+  amount         Float
+  originalAmount Float?
+  discountAmount Float?     @default(0)
+  promoCode      String?
+  paymentMethod  String     @default("UPI_QR") // UPI_QR, MANUAL, NETBANKING
+  utrReference   String?    // 12-digit UPI Transaction Reference (UTR)
+  payerPhone     String?
+  payerName      String?
+  proofImage     String?
+  status         String     @default("PENDING") // PENDING, APPROVED, REJECTED
+  rejectReason   String?
+  approvedAt     DateTime?
+  approvedBy     String?    // Super admin email/id
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([restaurantId])
+  @@index([status])
+  @@index([utrReference])
+}
+
+model PlatformSetting {
+  key         String   @id @unique // e.g. "BUSINESS_UPI_ID", "BUSINESS_UPI_NAME"
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+

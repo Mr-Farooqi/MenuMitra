@@ -15,10 +15,12 @@ interface HeaderProps {
       id: string;
       name: string;
       slug: string;
+      status?: string;
       package: {
         name: string;
       };
       features: string[];
+      pendingPayment?: any;
     } | null;
   };
   setMobileOpen: (open: boolean) => void;

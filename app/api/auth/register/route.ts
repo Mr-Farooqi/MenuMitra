@@ -23,6 +23,8 @@ const registerSchema = z.object({
   logo: z.string().optional(),
   cover: z.string().optional(),
   firstCategoryName: z.string().optional(),
+  utrReference: z.string().optional(),
+  promoCode: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -69,6 +71,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid package selected", code: "INVALID_PACKAGE" }, { status: 400 });
     }
 
+    let finalAmount = pkg.price;
+    let discountAmount = 0;
+    let appliedPromo: string | null = null;
+
+    if (data.promoCode) {
+      const cleanCode = data.promoCode.trim().toUpperCase();
+      const promo = await prisma.promoCode.findUnique({ where: { code: cleanCode } });
+      if (
+        promo &&
+        promo.active &&
+        (!promo.expiresAt || promo.expiresAt > new Date()) &&
+        promo.usedCount < promo.maxUses
+      ) {
+        if (promo.discountPercent) {
+          discountAmount = Math.round(((pkg.price * promo.discountPercent) / 100) * 100) / 100;
+        } else if (promo.discountAmount) {
+          discountAmount = Math.min(promo.discountAmount, pkg.price);
+        }
+        finalAmount = Math.max(0, pkg.price - discountAmount);
+        appliedPromo = promo.code;
+
+        await prisma.promoCode.update({
+          where: { id: promo.id },
+          data: { usedCount: { increment: 1 } },
+        });
+      }
+    }
+
     const passwordHash = await hashPassword(data.password);
 
     // Create Restaurant and Owner in transaction
@@ -85,7 +115,7 @@ export async function POST(req: NextRequest) {
           googleReviewLink: data.googleReviewLink || "",
           logo: data.logo || null,
           cover: data.cover || null,
-          status: "ACTIVE", // Auto active by default
+          status: "PENDING_PAYMENT", // Pending admin verification of UPI payment
         },
       });
 
@@ -194,14 +224,30 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // Initial subscription invoice
-      await tx.invoice.create({
+      // Record initial subscription payment request
+      await tx.subscriptionPayment.create({
         data: {
           restaurantId: rest.id,
           packageId: pkg.id,
-          amount: pkg.price,
-          status: "PAID",
-          paymentId: `INV_REG_${Date.now()}`,
+          amount: finalAmount,
+          originalAmount: pkg.price,
+          discountAmount,
+          promoCode: appliedPromo,
+          paymentMethod: "UPI_QR",
+          utrReference: data.utrReference?.trim() || null,
+          payerPhone: data.phone || null,
+          payerName: data.name,
+          status: "PENDING",
+        },
+      });
+
+      // Audit log entry
+      await tx.auditLog.create({
+        data: {
+          action: "RESTAURANT_REGISTERED",
+          details: `Registered restaurant "${rest.name}" with plan "${pkg.name}". Payment status: PENDING (UTR: ${data.utrReference || "N/A"})`,
+          actorEmail: data.email.toLowerCase(),
+          restaurantId: rest.id,
         },
       });
 

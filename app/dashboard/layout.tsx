@@ -34,6 +34,18 @@ export default async function DashboardLayout({
 
   const features = user.restaurant ? parseFeatures(user.restaurant.package.features) : [];
 
+  let latestPendingPayment = null;
+  if (user.restaurant) {
+    latestPendingPayment = await prisma.subscriptionPayment.findFirst({
+      where: {
+        restaurantId: user.restaurant.id,
+        status: "PENDING",
+      },
+      orderBy: { createdAt: "desc" },
+      include: { package: true },
+    });
+  }
+
   const formattedUser = {
     id: user.id,
     name: user.name,
@@ -46,11 +58,21 @@ export default async function DashboardLayout({
           name: user.restaurant.name,
           slug: user.restaurant.slug,
           logo: user.restaurant.logo,
+          status: user.restaurant.status,
           package: {
             name: user.restaurant.package.name,
             slug: user.restaurant.package.slug,
           },
-          features,
+          features: user.restaurant.status === "PENDING_PAYMENT" ? [] : features,
+          pendingPayment: latestPendingPayment
+            ? {
+                id: latestPendingPayment.id,
+                amount: latestPendingPayment.amount,
+                utrReference: latestPendingPayment.utrReference,
+                packageName: latestPendingPayment.package.name,
+                createdAt: latestPendingPayment.createdAt.toISOString(),
+              }
+            : null,
         }
       : null,
   };

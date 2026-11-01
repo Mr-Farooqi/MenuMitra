@@ -33,6 +33,8 @@ import {
   MapPin,
   Clock,
   Eye,
+  Check,
+  Copy,
 } from "lucide-react";
 
 interface AdminStats {
@@ -53,7 +55,7 @@ interface RestaurantItem {
   slug: string;
   city: string;
   phone: string;
-  status: "ACTIVE" | "PENDING" | "SUSPENDED";
+  status: "ACTIVE" | "PENDING" | "PENDING_PAYMENT" | "SUSPENDED";
   packageId: string;
   package: {
     id: string;
@@ -125,10 +127,44 @@ interface AuditLogItem {
   createdAt: string;
 }
 
+interface SubscriptionPaymentItem {
+  id: string;
+  restaurantId: string;
+  packageId: string;
+  amount: number;
+  originalAmount?: number | null;
+  discountAmount?: number | null;
+  promoCode?: string | null;
+  paymentMethod: string;
+  utrReference?: string | null;
+  payerPhone?: string | null;
+  payerName?: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  rejectReason?: string | null;
+  approvedAt?: string | null;
+  approvedBy?: string | null;
+  createdAt: string;
+  restaurant: {
+    id: string;
+    name: string;
+    slug: string;
+    phone: string;
+    city: string;
+    status: string;
+    users: Array<{ id: string; name: string; email: string }>;
+  };
+  package: {
+    id: string;
+    name: string;
+    slug: string;
+    price: number;
+  };
+}
+
 export default function SuperAdminPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<
-    "analytics" | "restaurants" | "announcements" | "promos" | "logs" | "packages" | "tickets"
+    "analytics" | "restaurants" | "announcements" | "promos" | "logs" | "packages" | "tickets" | "payments"
   >("analytics");
   const [loading, setLoading] = useState(true);
 
@@ -139,6 +175,28 @@ export default function SuperAdminPage() {
   const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([]);
   const [promos, setPromos] = useState<PromoCodeItem[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
+
+  // Subscription Payments State
+  const [payments, setPayments] = useState<SubscriptionPaymentItem[]>([]);
+  const [paymentStats, setPaymentStats] = useState({
+    totalCollected: 0,
+    pendingCount: 0,
+    approvedCount: 0,
+    rejectedCount: 0,
+    totalCount: 0,
+  });
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState("ALL");
+  const [paymentSearch, setPaymentSearch] = useState("");
+  const [actionLoadingPayment, setActionLoadingPayment] = useState<string | null>(null);
+
+  // Business UPI Settings State
+  const [businessUpiId, setBusinessUpiId] = useState("menumitra@icici");
+  const [businessUpiName, setBusinessUpiName] = useState("MenuMitra SaaS");
+  const [tempUpiId, setTempUpiId] = useState("");
+  const [tempUpiName, setTempUpiName] = useState("");
+  const [editingUpiSettings, setEditingUpiSettings] = useState(false);
+  const [updatingUpi, setUpdatingUpi] = useState(false);
+  const [copiedUtr, setCopiedUtr] = useState<string | null>(null);
 
   // Search & Filter
   const [search, setSearch] = useState("");
@@ -180,7 +238,112 @@ export default function SuperAdminPage() {
 
   useEffect(() => {
     loadAllAdminData();
+    loadPayments();
+    loadUpiSettings();
   }, []);
+
+  useEffect(() => {
+    loadPayments();
+  }, [paymentStatusFilter, paymentSearch]);
+
+  async function loadPayments() {
+    try {
+      const res = await fetch(
+        `/api/admin/payments?status=${paymentStatusFilter}&search=${encodeURIComponent(paymentSearch)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setPayments(data.payments || []);
+        if (data.stats) {
+          setPaymentStats(data.stats);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load payments:", err);
+    }
+  }
+
+  async function loadUpiSettings() {
+    try {
+      const res = await fetch("/api/admin/platform-settings");
+      if (res.ok) {
+        const data = await res.json();
+        setBusinessUpiId(data.businessUpiId || "menumitra@icici");
+        setBusinessUpiName(data.businessUpiName || "MenuMitra SaaS");
+        setTempUpiId(data.businessUpiId || "menumitra@icici");
+        setTempUpiName(data.businessUpiName || "MenuMitra SaaS");
+      }
+    } catch (err) {
+      console.error("Failed to load UPI settings:", err);
+    }
+  }
+
+  async function handlePaymentAction(paymentId: string, action: "APPROVE" | "REJECT") {
+    let reason: string | undefined = undefined;
+    if (action === "REJECT") {
+      const promptReason = window.prompt("Enter rejection reason (optional, press OK for default):");
+      if (promptReason === null) return;
+      reason = promptReason || undefined;
+    } else {
+      if (!confirm("Approve this UPI payment and activate the restaurant?")) return;
+    }
+
+    setActionLoadingPayment(paymentId);
+    try {
+      const res = await fetch("/api/admin/payments/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentId, action, reason }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message || `Payment ${action.toLowerCase()}d successfully`);
+        await Promise.all([loadPayments(), loadAllAdminData()]);
+      } else {
+        alert(data.error || `Failed to ${action.toLowerCase()} payment`);
+      }
+    } catch {
+      alert("Network error processing payment action");
+    } finally {
+      setActionLoadingPayment(null);
+    }
+  }
+
+  async function handleSaveUpiSettings(e: React.FormEvent) {
+    e.preventDefault();
+    if (!tempUpiId.trim() || !tempUpiId.includes("@")) {
+      alert("Please enter a valid UPI VPA (e.g. name@bank)");
+      return;
+    }
+
+    setUpdatingUpi(true);
+    try {
+      const res = await fetch("/api/admin/platform-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessUpiId: tempUpiId, businessUpiName: tempUpiName }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBusinessUpiId(data.businessUpiId);
+        setBusinessUpiName(data.businessUpiName);
+        setEditingUpiSettings(false);
+        alert("Platform UPI ID updated successfully!");
+      } else {
+        alert(data.error || "Failed to update UPI settings");
+      }
+    } catch {
+      alert("Error updating UPI settings");
+    } finally {
+      setUpdatingUpi(false);
+    }
+  }
+
+  const handleCopyUtr = (utr: string) => {
+    navigator.clipboard.writeText(utr);
+    setCopiedUtr(utr);
+    setTimeout(() => setCopiedUtr(null), 2000);
+  };
 
   async function loadAllAdminData() {
     setLoading(true);
@@ -615,6 +778,23 @@ export default function SuperAdminPage() {
               </span>
             )}
           </button>
+
+          <button
+            onClick={() => setActiveTab("payments")}
+            className={`px-4 py-2.5 text-xs font-bold rounded-t-xl transition flex items-center gap-2 whitespace-nowrap ${
+              activeTab === "payments"
+                ? "bg-stone-800 text-white border-t-2 border-emerald-500"
+                : "text-stone-400 hover:text-white"
+            }`}
+          >
+            <CreditCard className="w-4 h-4 text-emerald-400" />
+            Subscription Payments
+            {paymentStats.pendingCount > 0 && (
+              <span className="px-1.5 py-0.2 bg-amber-500 text-black text-[10px] font-black rounded-full animate-pulse">
+                {paymentStats.pendingCount}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* ================= TAB 1: ANALYTICS & CITY GROWTH ================= */}
@@ -761,7 +941,7 @@ export default function SuperAdminPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                {["ALL", "ACTIVE", "PENDING", "SUSPENDED"].map((st) => (
+                {["ALL", "ACTIVE", "PENDING_PAYMENT", "SUSPENDED"].map((st) => (
                   <button
                     key={st}
                     onClick={() => setStatusFilter(st)}
@@ -771,7 +951,7 @@ export default function SuperAdminPage() {
                         : "bg-stone-800 text-stone-400 hover:text-white"
                     }`}
                   >
-                    {st}
+                    {st === "PENDING_PAYMENT" ? "PAYMENT PENDING" : st}
                   </button>
                 ))}
               </div>
@@ -842,17 +1022,32 @@ export default function SuperAdminPage() {
                               className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
                                 r.status === "ACTIVE"
                                   ? "bg-green-500/20 text-green-300 border border-green-500/30"
-                                  : r.status === "PENDING"
+                                  : r.status === "PENDING" || r.status === "PENDING_PAYMENT"
                                   ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                                   : "bg-red-500/20 text-red-300 border border-red-500/30"
                               }`}
                             >
-                              {r.status}
+                              {r.status === "PENDING_PAYMENT" ? "PAYMENT PENDING" : r.status}
                             </span>
                           </td>
 
                           <td className="px-5 py-4 text-right">
                             <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                              {/* Quick Verify Payment button for pending registrations */}
+                              {r.status === "PENDING_PAYMENT" && (
+                                <button
+                                  onClick={() => {
+                                    setPaymentSearch(r.name);
+                                    setActiveTab("payments");
+                                  }}
+                                  className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-stone-950 text-[11px] font-black rounded-lg transition flex items-center gap-1 shadow-sm"
+                                  title="Review and approve pending UPI payment"
+                                >
+                                  <CreditCard className="w-3.5 h-3.5" />
+                                  Verify Payment
+                                </button>
+                              )}
+
                               {/* 1-Click Impersonation button */}
                               <button
                                 onClick={() => handleImpersonate(r.id)}
@@ -1567,6 +1762,339 @@ export default function SuperAdminPage() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ================= TAB 8: SUBSCRIPTION PAYMENTS & APPROVALS ================= */}
+        {activeTab === "payments" && (
+          <div className="space-y-6">
+            {/* Payment KPI Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-stone-800/80 border border-stone-700/60 rounded-2xl p-5 shadow-sm">
+                <div className="flex items-center justify-between text-stone-400">
+                  <span className="text-xs font-semibold uppercase tracking-wider">Verified Revenue</span>
+                  <DollarSign className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="text-3xl font-black text-white mt-2">
+                  ₹{paymentStats.totalCollected.toLocaleString("en-IN")}
+                </div>
+                <div className="text-[11px] text-emerald-400 mt-1 font-bold">
+                  {paymentStats.approvedCount} approved subscriptions
+                </div>
+              </div>
+
+              <div className="bg-stone-800/80 border border-amber-500/50 rounded-2xl p-5 shadow-sm relative overflow-hidden">
+                <div className="flex items-center justify-between text-stone-400">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+                    Pending Verification
+                  </span>
+                  <Clock className="w-4 h-4 text-amber-400 animate-pulse" />
+                </div>
+                <div className="text-3xl font-black text-amber-400 mt-2">
+                  {paymentStats.pendingCount}
+                </div>
+                <div className="text-[11px] text-amber-300/80 mt-1">
+                  Awaiting UTR match & approval
+                </div>
+              </div>
+
+              <div className="bg-stone-800/80 border border-stone-700/60 rounded-2xl p-5 shadow-sm">
+                <div className="flex items-center justify-between text-stone-400">
+                  <span className="text-xs font-semibold uppercase tracking-wider">Approved</span>
+                  <CheckCircle2 className="w-4 h-4 text-green-400" />
+                </div>
+                <div className="text-3xl font-black text-white mt-2">
+                  {paymentStats.approvedCount}
+                </div>
+                <div className="text-[11px] text-stone-400 mt-1">Active paid restaurants</div>
+              </div>
+
+              <div className="bg-stone-800/80 border border-stone-700/60 rounded-2xl p-5 shadow-sm">
+                <div className="flex items-center justify-between text-stone-400">
+                  <span className="text-xs font-semibold uppercase tracking-wider">Rejected</span>
+                  <XCircle className="w-4 h-4 text-red-400" />
+                </div>
+                <div className="text-3xl font-black text-white mt-2">
+                  {paymentStats.rejectedCount}
+                </div>
+                <div className="text-[11px] text-stone-400 mt-1">Invalid or duplicate UTR</div>
+              </div>
+            </div>
+
+            {/* Platform Business UPI ID Config Card */}
+            <div className="bg-stone-800/80 border border-stone-700/60 rounded-2xl p-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center shrink-0">
+                    <QrCode className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">
+                      Official Platform UPI Payment Receiving Settings
+                    </h3>
+                    <p className="text-xs text-stone-400">
+                      This UPI ID and Business Name are embedded dynamically into QR codes for all restaurants.
+                    </p>
+                  </div>
+                </div>
+
+                {!editingUpiSettings ? (
+                  <div className="flex items-center gap-3 self-end sm:self-center">
+                    <div className="bg-stone-900 border border-stone-700 px-3 py-1.5 rounded-xl font-mono text-xs text-amber-300">
+                      <span>{businessUpiId}</span>
+                      <span className="text-stone-500 mx-2">|</span>
+                      <span className="text-stone-300 font-sans">{businessUpiName}</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setTempUpiId(businessUpiId);
+                        setTempUpiName(businessUpiName);
+                        setEditingUpiSettings(true);
+                      }}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" /> Edit UPI ID
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSaveUpiSettings} className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="UPI ID (e.g. business@bank)"
+                      value={tempUpiId}
+                      onChange={(e) => setTempUpiId(e.target.value)}
+                      className="bg-stone-900 border border-stone-700 text-white text-xs px-3 py-1.5 rounded-xl font-mono focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Business Name"
+                      value={tempUpiName}
+                      onChange={(e) => setTempUpiName(e.target.value)}
+                      className="bg-stone-900 border border-stone-700 text-white text-xs px-3 py-1.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    />
+                    <button
+                      type="submit"
+                      disabled={updatingUpi}
+                      className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-xl flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Save className="w-3.5 h-3.5" /> {updatingUpi ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingUpiSettings(false)}
+                      className="px-3 py-1.5 bg-stone-700 hover:bg-stone-600 text-stone-300 text-xs font-semibold rounded-xl"
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
+
+            {/* Search and Status Filters */}
+            <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
+              <div className="relative w-full sm:w-80">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+                <input
+                  type="text"
+                  value={paymentSearch}
+                  onChange={(e) => setPaymentSearch(e.target.value)}
+                  placeholder="Search UTR, restaurant, phone..."
+                  className="w-full pl-9 pr-4 py-2 bg-stone-800 border border-stone-700 rounded-xl text-xs text-white placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                {["ALL", "PENDING", "APPROVED", "REJECTED"].map((st) => (
+                  <button
+                    key={st}
+                    onClick={() => setPaymentStatusFilter(st)}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
+                      paymentStatusFilter === st
+                        ? "bg-amber-600 text-white"
+                        : "bg-stone-800 text-stone-400 hover:text-white"
+                    }`}
+                  >
+                    {st}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Payments Submissions Table */}
+            <div className="bg-stone-800/80 border border-stone-700/60 rounded-2xl overflow-hidden shadow-sm">
+              {payments.length === 0 ? (
+                <div className="p-12 text-center text-sm text-stone-400">
+                  No subscription payment requests found matching your filter.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-stone-300">
+                    <thead className="bg-stone-900/60 text-[11px] uppercase tracking-wider text-stone-400 border-b border-stone-700/60">
+                      <tr>
+                        <th className="px-5 py-3">Restaurant & Owner</th>
+                        <th className="px-5 py-3">Plan & Amount</th>
+                        <th className="px-5 py-3">12-Digit UTR Reference</th>
+                        <th className="px-5 py-3">Submission Date</th>
+                        <th className="px-5 py-3">Status</th>
+                        <th className="px-5 py-3 text-right">Approval Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-700/50">
+                      {payments.map((p) => {
+                        const owner = p.restaurant.users[0];
+                        return (
+                          <tr key={p.id} className="hover:bg-stone-700/20 transition">
+                            <td className="px-5 py-4">
+                              <div className="font-bold text-white text-xs">
+                                {p.restaurant.name}
+                              </div>
+                              <div className="text-[11px] font-mono text-stone-400 flex items-center gap-1 mt-0.5">
+                                <span>/{p.restaurant.slug}</span>
+                                <a
+                                  href={`/m/${p.restaurant.slug}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-amber-400 hover:underline"
+                                >
+                                  <ExternalLink className="w-3 h-3 inline" />
+                                </a>
+                              </div>
+                              <div className="text-[10px] text-stone-400 mt-1">
+                                Owner: <span className="text-stone-300">{owner?.name || "N/A"}</span> ({owner?.email || p.restaurant.phone})
+                              </div>
+                            </td>
+
+                            <td className="px-5 py-4 text-xs">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-white">
+                                  {p.package.name} Plan
+                                </span>
+                                {p.promoCode && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-green-500/20 text-green-300 border border-green-500/30">
+                                    {p.promoCode}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-base font-black text-amber-400 mt-0.5">
+                                ₹{p.amount.toLocaleString("en-IN")}
+                              </div>
+                              {p.discountAmount ? (
+                                <div className="text-[10px] text-green-400">
+                                  Saved ₹{p.discountAmount}
+                                </div>
+                              ) : null}
+                            </td>
+
+                            <td className="px-5 py-4">
+                              {p.utrReference ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-bold text-xs bg-stone-900 border border-stone-700 px-2.5 py-1 rounded-lg text-amber-300 tracking-wider">
+                                    {p.utrReference}
+                                  </span>
+                                  <button
+                                    onClick={() => handleCopyUtr(p.utrReference!)}
+                                    className="p-1 text-stone-400 hover:text-white transition"
+                                    title="Copy UTR"
+                                  >
+                                    {copiedUtr === p.utrReference ? (
+                                      <Check className="w-3.5 h-3.5 text-green-400" />
+                                    ) : (
+                                      <Copy className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-stone-500 italic">No UTR Provided</span>
+                              )}
+                              {p.payerPhone && (
+                                <div className="text-[10px] text-stone-400 mt-1">
+                                  Pay Phone: {p.payerPhone}
+                                </div>
+                              )}
+                            </td>
+
+                            <td className="px-5 py-4 text-xs text-stone-400">
+                              <div>
+                                {new Date(p.createdAt).toLocaleDateString("en-IN", {
+                                  day: "numeric",
+                                  month: "short",
+                                  year: "numeric",
+                                })}
+                              </div>
+                              <div className="text-[10px] text-stone-500">
+                                {new Date(p.createdAt).toLocaleTimeString("en-IN", {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </div>
+                            </td>
+
+                            <td className="px-5 py-4">
+                              {p.status === "PENDING" && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                  <Clock className="w-3 h-3 animate-spin" /> PENDING
+                                </span>
+                              )}
+                              {p.status === "APPROVED" && (
+                                <div>
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-green-500/20 text-green-300 border border-green-500/30">
+                                    <CheckCircle2 className="w-3 h-3" /> APPROVED
+                                  </span>
+                                  {p.approvedBy && (
+                                    <div className="text-[9px] text-stone-500 mt-1">
+                                      By: {p.approvedBy}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {p.status === "REJECTED" && (
+                                <div>
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/30">
+                                    <XCircle className="w-3 h-3" /> REJECTED
+                                  </span>
+                                  {p.rejectReason && (
+                                    <div className="text-[10px] text-red-400 mt-1 max-w-[160px] truncate" title={p.rejectReason}>
+                                      {p.rejectReason}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+
+                            <td className="px-5 py-4 text-right">
+                              {p.status === "PENDING" ? (
+                                <div className="flex items-center justify-end gap-2">
+                                  <button
+                                    onClick={() => handlePaymentAction(p.id, "APPROVE")}
+                                    disabled={actionLoadingPayment === p.id}
+                                    className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg shadow-sm transition flex items-center gap-1 disabled:opacity-50"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>Approve & Activate</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handlePaymentAction(p.id, "REJECT")}
+                                    disabled={actionLoadingPayment === p.id}
+                                    className="px-2.5 py-1.5 bg-stone-800 hover:bg-red-900/50 text-red-400 border border-stone-700 hover:border-red-700 text-xs font-semibold rounded-lg transition disabled:opacity-50"
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-stone-500 italic">
+                                  {p.status === "APPROVED" ? "Plan Activated" : "Archived"}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

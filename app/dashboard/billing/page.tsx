@@ -11,8 +11,11 @@ import {
   Download,
   AlertCircle,
   Clock,
+  QrCode,
+  Copy,
+  Check,
 } from "lucide-react";
-import confetti from "canvas-confetti";
+import { UpiPaymentModal } from "@/components/billing/upi-payment-modal";
 
 interface PackageItem {
   id: string;
@@ -20,6 +23,7 @@ interface PackageItem {
   slug: string;
   price: number;
   features: string;
+  description?: string;
 }
 
 interface InvoiceItem {
@@ -30,48 +34,37 @@ interface InvoiceItem {
   createdAt: string;
 }
 
+interface PendingPaymentItem {
+  id: string;
+  amount: number;
+  originalAmount?: number;
+  discountAmount?: number;
+  promoCode?: string;
+  utrReference?: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  rejectReason?: string;
+  createdAt: string;
+  package: {
+    name: string;
+    slug: string;
+  };
+}
+
 export default function BillingPage() {
   const [loading, setLoading] = useState(true);
+  const [restaurant, setRestaurant] = useState<{ id: string; name: string; status: string } | null>(null);
   const [currentPackage, setCurrentPackage] = useState<PackageItem | null>(null);
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [pendingPayments, setPendingPayments] = useState<PendingPaymentItem[]>([]);
 
-  // Promo Code State
-  const [promoInput, setPromoInput] = useState("");
-  const [appliedPromo, setAppliedPromo] = useState<string | null>(null);
-  const [promoDiscountMsg, setPromoDiscountMsg] = useState("");
-  const [validatingPromo, setValidatingPromo] = useState(false);
+  // UPI Checkout Modal state
+  const [selectedPlanForUpgrade, setSelectedPlanForUpgrade] = useState<PackageItem | null>(null);
+  const [showUpiModal, setShowUpiModal] = useState(false);
 
   useEffect(() => {
     fetchBillingData();
   }, []);
-
-  async function handleApplyPromo() {
-    if (!promoInput.trim()) return;
-    setValidatingPromo(true);
-    setPromoDiscountMsg("");
-
-    try {
-      const res = await fetch("/api/billing/validate-promo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: promoInput.trim(), planSlug: "premium" }),
-      });
-      const data = await res.json();
-      if (res.ok && data.valid) {
-        setAppliedPromo(data.code);
-        setPromoDiscountMsg(data.message || `Code ${data.code} applied! You save ₹${data.discountSaved}.`);
-      } else {
-        alert(data.error || "Invalid promo code");
-      }
-    } catch {
-      alert("Error applying promo code");
-    } finally {
-      setValidatingPromo(false);
-    }
-  }
 
   async function fetchBillingData() {
     setLoading(true);
@@ -79,9 +72,11 @@ export default function BillingPage() {
       const res = await fetch("/api/billing/invoices");
       if (res.ok) {
         const data = await res.json();
+        setRestaurant(data.restaurant);
         setCurrentPackage(data.currentPackage);
         setPackages(data.packages || []);
         setInvoices(data.invoices || []);
+        setPendingPayments(data.pendingPayments || []);
       }
     } catch (err) {
       console.error("Failed to load billing:", err);
@@ -90,41 +85,10 @@ export default function BillingPage() {
     }
   }
 
-  async function handleSwitchPlan(pkg: PackageItem) {
-    if (pkg.id === currentPackage?.id) return;
-    if (!confirm(`Are you sure you want to switch to the ${pkg.name} plan (₹${pkg.price}/month)?`)) return;
-
-    setActionLoading(pkg.id);
-    setMessage(null);
-
-    try {
-      const res = await fetch("/api/billing/upgrade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetPlanSlug: pkg.slug,
-          promoCode: appliedPromo || undefined,
-        }),
-      });
-      const data = await res.json();
-
-      if (res.ok) {
-        confetti({
-          particleCount: 70,
-          spread: 60,
-          origin: { y: 0.6 },
-        });
-        setMessage({ type: "success", text: `Successfully switched to ${pkg.name} plan!` });
-        await fetchBillingData();
-      } else {
-        setMessage({ type: "error", text: data.error || "Failed to switch plan" });
-      }
-    } catch {
-      setMessage({ type: "error", text: "Network error processing plan switch" });
-    } finally {
-      setActionLoading(null);
-    }
-  }
+  const handleOpenUpgrade = (pkg: PackageItem) => {
+    setSelectedPlanForUpgrade(pkg);
+    setShowUpiModal(true);
+  };
 
   const parseFeatures = (featuresJson: string): string[] => {
     try {
@@ -142,6 +106,8 @@ export default function BillingPage() {
     reviewReward: "Google Reviews Gamified Scratch Cards & Coupons",
   };
 
+  const isPendingVerification = restaurant?.status === "PENDING_PAYMENT";
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
       {/* Header */}
@@ -156,30 +122,107 @@ export default function BillingPage() {
             </h1>
           </div>
           <p className="text-sm text-gray-500 mt-1">
-            Manage your MenuMitra plan, upgrade features, and view invoices.
+            Manage your MenuMitra plan, scan UPI QR to upgrade, and track payments.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 border border-green-200 rounded-lg text-xs font-semibold text-green-800">
-          <ShieldCheck className="w-4 h-4 text-green-600" />
-          <span>Active Subscription</span>
-        </div>
+        {isPendingVerification ? (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-300 rounded-xl text-xs font-bold text-amber-800 animate-pulse">
+            <Clock className="w-4 h-4 text-amber-600" />
+            <span>Payment Verification Pending</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 border border-green-200 rounded-xl text-xs font-semibold text-green-800">
+            <ShieldCheck className="w-4 h-4 text-green-600" />
+            <span>Active Subscription</span>
+          </div>
+        )}
       </div>
 
-      {message && (
-        <div
-          className={`p-4 rounded-xl text-sm font-medium flex items-center gap-3 border ${
-            message.type === "success"
-              ? "bg-green-50 border-green-200 text-green-800"
-              : "bg-red-50 border-red-200 text-red-800"
-          }`}
-        >
-          {message.type === "success" ? (
-            <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0" />
-          ) : (
-            <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
-          )}
-          <span>{message.text}</span>
+      {/* Pending Payment Requests Card (If any) */}
+      {pendingPayments.length > 0 && (
+        <div className="bg-white border-2 border-amber-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="p-5 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold">
+                <Clock className="w-4 h-4 animate-spin" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-amber-950">
+                  Recent UPI Payment Submissions ({pendingPayments.length})
+                </h3>
+                <p className="text-xs text-amber-800/80">
+                  Super Admin verifies payments with your bank reference UTR number.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={fetchBillingData}
+              className="text-xs font-bold text-amber-900 bg-white border border-amber-300 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition"
+            >
+              Refresh Status
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-stone-50 border-b border-stone-200 text-stone-600 uppercase font-bold">
+                <tr>
+                  <th className="px-5 py-3">Plan</th>
+                  <th className="px-5 py-3">Amount</th>
+                  <th className="px-5 py-3">UTR Reference</th>
+                  <th className="px-5 py-3">Date Submitted</th>
+                  <th className="px-5 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {pendingPayments.map((p) => (
+                  <tr key={p.id} className="hover:bg-amber-50/20">
+                    <td className="px-5 py-3.5 font-bold text-stone-900">
+                      {p.package.name} Plan
+                      {p.promoCode && (
+                        <span className="ml-2 text-[10px] font-mono font-bold bg-green-100 text-green-800 px-1.5 py-0.5 rounded">
+                          {p.promoCode}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5 font-black text-stone-900">
+                      ₹{p.amount}
+                    </td>
+                    <td className="px-5 py-3.5 font-mono font-bold text-stone-700">
+                      {p.utrReference || "N/A"}
+                    </td>
+                    <td className="px-5 py-3.5 text-stone-500">
+                      {new Date(p.createdAt).toLocaleDateString("en-IN", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      {p.status === "PENDING" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                          <Clock className="w-3 h-3 text-amber-600" /> Pending Verification
+                        </span>
+                      )}
+                      {p.status === "APPROVED" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Approved & Active
+                        </span>
+                      )}
+                      {p.status === "REJECTED" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 border border-red-200" title={p.rejectReason || undefined}>
+                          <AlertCircle className="w-3 h-3 text-red-600" /> Rejected {p.rejectReason ? `(${p.rejectReason})` : ""}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -194,7 +237,9 @@ export default function BillingPage() {
               </span>
               <h2 className="text-3xl font-black mt-2">{currentPackage.name} Plan</h2>
               <p className="text-white/80 text-sm mt-1 max-w-md">
-                Your restaurant has full access to all features included under the {currentPackage.name} package.
+                {isPendingVerification
+                  ? "Your payment is currently being verified by our team. Features will activate automatically once verified."
+                  : `Your restaurant has full access to all features included under the ${currentPackage.name} package.`}
               </p>
             </div>
 
@@ -205,54 +250,19 @@ export default function BillingPage() {
                 <span className="text-sm font-normal text-white/80"> / month</span>
               </div>
               <div className="text-xs text-white/80 mt-1 flex items-center md:justify-end gap-1">
-                <Clock className="w-3.5 h-3.5" /> Renews Monthly
+                <Clock className="w-3.5 h-3.5" /> Renews Monthly via UPI
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Promo Code Input Card */}
-      <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4 text-amber-600" /> Have a Platform Promo Code / Coupon?
-          </h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Enter your special discount voucher before upgrading your subscription plan.
-          </p>
-          {promoDiscountMsg && (
-            <p className="text-xs font-bold text-green-700 mt-2 flex items-center gap-1">
-              <CheckCircle2 className="w-4 h-4 shrink-0" /> {promoDiscountMsg}
-            </p>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <input
-            type="text"
-            value={promoInput}
-            onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
-            placeholder="e.g. DIWALI50"
-            className="w-full sm:w-40 px-3 py-2 text-xs font-mono font-bold uppercase tracking-widest border border-amber-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-          />
-          <button
-            type="button"
-            disabled={validatingPromo || !promoInput.trim()}
-            onClick={handleApplyPromo}
-            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-sm transition disabled:opacity-50 shrink-0"
-          >
-            {validatingPromo ? "Verifying..." : "Apply"}
-          </button>
-        </div>
-      </div>
-
       {/* Available Plans Grid */}
       <div className="space-y-4">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">Change Subscription Plan</h2>
+          <h2 className="text-lg font-bold text-gray-900">Change / Upgrade Subscription Plan</h2>
           <p className="text-xs text-gray-500">
-            Switch plans anytime. Upgrades take effect instantly with immediate access to unlocked features.
+            Scan UPI QR with Google Pay, PhonePe, or Paytm and submit your 12-digit UTR to upgrade your plan.
           </p>
         </div>
 
@@ -303,15 +313,15 @@ export default function BillingPage() {
 
                   <ul className="mt-6 space-y-3">
                     {["menu", "qr", "website", "orders", "reviewReward"].map((feat) => {
-                      const hasFeature = features.includes(feat);
+                      const hasFeat = features.includes(feat);
                       return (
                         <li key={feat} className="flex items-start gap-2.5 text-xs">
-                          {hasFeature ? (
+                          {hasFeat ? (
                             <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
                           ) : (
                             <div className="w-4 h-4 rounded-full border border-gray-200 shrink-0 mt-0.5" />
                           )}
-                          <span className={hasFeature ? "text-gray-700 font-medium" : "text-gray-400 line-through"}>
+                          <span className={hasFeat ? "text-gray-700 font-medium" : "text-gray-400 line-through"}>
                             {featureLabels[feat]}
                           </span>
                         </li>
@@ -321,7 +331,7 @@ export default function BillingPage() {
                 </div>
 
                 <div className="p-6 pt-0 mt-auto">
-                  {isCurrent ? (
+                  {isCurrent && !isPendingVerification ? (
                     <button
                       disabled
                       className="w-full py-2.5 bg-amber-50 text-amber-800 text-xs font-bold rounded-xl border border-amber-200 cursor-default flex items-center justify-center gap-1.5"
@@ -330,18 +340,12 @@ export default function BillingPage() {
                     </button>
                   ) : (
                     <button
-                      disabled={!!actionLoading}
-                      onClick={() => handleSwitchPlan(pkg)}
-                      className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-sm transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+                      onClick={() => handleOpenUpgrade(pkg)}
+                      className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 shadow-amber-500/20"
                     >
-                      {actionLoading === pkg.id ? (
-                        "Processing..."
-                      ) : (
-                        <>
-                          <span>Switch to {pkg.name}</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </>
-                      )}
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span>{isCurrent ? "Complete UPI Payment" : `Pay & Switch to ${pkg.name}`}</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
@@ -356,14 +360,14 @@ export default function BillingPage() {
         <div className="p-6 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Receipt className="w-5 h-5 text-amber-600" />
-            <h3 className="text-base font-bold text-gray-900">Billing & Invoice History</h3>
+            <h3 className="text-base font-bold text-gray-900">Official GST Invoices</h3>
           </div>
           <span className="text-xs text-gray-400">{invoices.length} invoices recorded</span>
         </div>
 
         {invoices.length === 0 ? (
           <div className="p-12 text-center text-sm text-gray-500">
-            No invoices generated yet.
+            No official invoices generated yet. Invoices appear here once subscription payments are approved.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -373,7 +377,7 @@ export default function BillingPage() {
                   <th className="px-6 py-3">Invoice ID</th>
                   <th className="px-6 py-3">Date</th>
                   <th className="px-6 py-3">Amount</th>
-                  <th className="px-6 py-3">Payment ID</th>
+                  <th className="px-6 py-3">Payment Reference</th>
                   <th className="px-6 py-3">Status</th>
                   <th className="px-6 py-3 text-right">Receipt</th>
                 </tr>
@@ -404,7 +408,11 @@ export default function BillingPage() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <button
-                        onClick={() => alert(`Invoice INV-${inv.id.substring(0, 8).toUpperCase()} paid via ${inv.paymentId}. Amount: ₹${inv.amount}.`)}
+                        onClick={() =>
+                          alert(
+                            `MenuMitra Tax Invoice\n\nInvoice ID: INV-${inv.id.substring(0, 8).toUpperCase()}\nAmount: ₹${inv.amount}\nReference: ${inv.paymentId}\nStatus: ${inv.status}\nDate: ${new Date(inv.createdAt).toLocaleDateString("en-IN")}`
+                          )
+                        }
                         className="text-xs text-amber-600 hover:text-amber-800 font-semibold inline-flex items-center gap-1"
                       >
                         <Download className="w-3.5 h-3.5" /> View Receipt
@@ -417,6 +425,16 @@ export default function BillingPage() {
           </div>
         )}
       </div>
+
+      {/* UPI Scan & Pay Modal */}
+      <UpiPaymentModal
+        isOpen={showUpiModal}
+        onClose={() => setShowUpiModal(false)}
+        plan={selectedPlanForUpgrade}
+        onPaymentSubmitted={() => {
+          fetchBillingData();
+        }}
+      />
     </div>
   );
 }

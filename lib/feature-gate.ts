@@ -76,6 +76,26 @@ export async function requireFeature(
     );
   }
 
+  if (restaurant.status === "PENDING_PAYMENT") {
+    return NextResponse.json(
+      {
+        error: "Your subscription payment is currently pending verification. Features will unlock once approved by admin.",
+        code: "PAYMENT_PENDING",
+      },
+      { status: 403 }
+    );
+  }
+
+  if (restaurant.status === "SUSPENDED") {
+    return NextResponse.json(
+      {
+        error: "Your restaurant account is suspended. Please contact platform support.",
+        code: "ACCOUNT_SUSPENDED",
+      },
+      { status: 403 }
+    );
+  }
+
   const features = parseFeatures(restaurant.package.features);
   if (!features.includes(feature)) {
     const info = FEATURE_INFO[feature];

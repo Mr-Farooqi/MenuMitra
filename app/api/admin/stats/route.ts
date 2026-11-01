@@ -23,7 +23,7 @@ export async function GET() {
   ] = await Promise.all([
     prisma.restaurant.count(),
     prisma.restaurant.count({ where: { status: "ACTIVE" } }),
-    prisma.restaurant.count({ where: { status: "PENDING" } }),
+    prisma.restaurant.count({ where: { status: { in: ["PENDING", "PENDING_PAYMENT"] } } }),
     prisma.restaurant.count({ where: { status: "SUSPENDED" } }),
     prisma.order.count(),
     prisma.scanEvent.count(),

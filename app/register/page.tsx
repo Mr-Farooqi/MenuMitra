@@ -3,6 +3,7 @@
 import React, { useState, useEffect, Suspense, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import QRCode from "qrcode";
 import {
   UtensilsCrossed,
   ArrowRight,
@@ -16,6 +17,10 @@ import {
   Phone,
   Gift,
   AlertCircle,
+  QrCode,
+  Copy,
+  CreditCard,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -58,36 +63,121 @@ function RegisterForm() {
     logo: "",
     cover: "",
     firstCategoryName: "Chef's Specials",
+    // Step 4
+    utrReference: "",
+    promoCode: "",
   });
 
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch packages
+  // UPI Settings & QR state
+  const [businessUpiId, setBusinessUpiId] = useState("menumitra@icici");
+  const [businessUpiName, setBusinessUpiName] = useState("MenuMitra SaaS");
+  const [qrDataUrl, setQrDataUrl] = useState<string>("");
+  const [copiedUpi, setCopiedUpi] = useState(false);
+
+  // Promo code state
+  const [promoInput, setPromoInput] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<string | null>(null);
+  const [discountAmount, setDiscountAmount] = useState(0);
+  const [promoMessage, setPromoMessage] = useState<string | null>(null);
+  const [validatingPromo, setValidatingPromo] = useState(false);
+
+  // Fetch packages and UPI settings
   useEffect(() => {
-    async function loadPackages() {
+    async function loadData() {
       try {
-        const res = await fetch("/api/public/packages");
-        const data = await res.json();
-        if (data.packages && data.packages.length > 0) {
-          setPackages(data.packages);
-          // Set initial package
-          const matching = data.packages.find((p: PackageData) => p.slug === initialPlanSlug.toLowerCase());
+        const [pkgRes, settingsRes] = await Promise.all([
+          fetch("/api/public/packages"),
+          fetch("/api/public/platform-settings"),
+        ]);
+
+        const pkgData = await pkgRes.json();
+        if (pkgData.packages && pkgData.packages.length > 0) {
+          setPackages(pkgData.packages);
+          const matching = pkgData.packages.find((p: PackageData) => p.slug === initialPlanSlug.toLowerCase());
           if (matching) {
             setFormData((prev) => ({ ...prev, packageId: matching.id }));
           } else {
-            setFormData((prev) => ({ ...prev, packageId: data.packages[0].id }));
+            setFormData((prev) => ({ ...prev, packageId: pkgData.packages[0].id }));
           }
         }
+
+        if (settingsRes.ok) {
+          const settingsData = await settingsRes.json();
+          if (settingsData.businessUpiId) setBusinessUpiId(settingsData.businessUpiId);
+          if (settingsData.businessUpiName) setBusinessUpiName(settingsData.businessUpiName);
+        }
       } catch (err) {
-        console.error("Failed to load packages", err);
+        console.error("Failed to load initial data", err);
       } finally {
         setLoadingPackages(false);
       }
     }
-    loadPackages();
+    loadData();
   }, [initialPlanSlug]);
+
+  const selectedPkg = packages.find((p) => p.id === formData.packageId) || packages[0];
+  const basePrice = selectedPkg?.price || 0;
+  const finalAmount = Math.max(0, basePrice - discountAmount);
+
+  // Generate QR code for Step 4
+  useEffect(() => {
+    if (!selectedPkg || !businessUpiId) return;
+
+    const upiUri = `upi://pay?pa=${encodeURIComponent(
+      businessUpiId
+    )}&pn=${encodeURIComponent(businessUpiName)}&am=${finalAmount.toFixed(
+      2
+    )}&cu=INR&tn=MenuMitra_${selectedPkg.slug.toUpperCase()}`;
+
+    QRCode.toDataURL(upiUri, {
+      width: 250,
+      margin: 1,
+      color: {
+        dark: "#1c1917",
+        light: "#ffffff",
+      },
+    })
+      .then((url) => setQrDataUrl(url))
+      .catch((err) => console.error("QR generation error:", err));
+  }, [businessUpiId, businessUpiName, finalAmount, selectedPkg]);
+
+  const handleCopyUpi = () => {
+    navigator.clipboard.writeText(businessUpiId);
+    setCopiedUpi(true);
+    setTimeout(() => setCopiedUpi(false), 2000);
+  };
+
+  const handleApplyPromo = async () => {
+    if (!promoInput.trim() || !selectedPkg) return;
+    setValidatingPromo(true);
+    setPromoMessage(null);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/billing/validate-promo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: promoInput.trim(), planSlug: selectedPkg.slug }),
+      });
+      const data = await res.json();
+      if (res.ok && data.valid) {
+        setAppliedPromo(data.code);
+        setDiscountAmount(data.discountSaved || 0);
+        setFormData((prev) => ({ ...prev, promoCode: data.code }));
+        setPromoMessage(data.message || `Code ${data.code} applied! Saved ₹${data.discountSaved}.`);
+      } else {
+        setError(data.error || "Invalid promo code");
+      }
+    } catch {
+      setError("Error validating promo code");
+    } finally {
+      setValidatingPromo(false);
+    }
+  };
 
   // Auto slug generator
   const handleRestaurantNameChange = (name: string) => {
@@ -98,72 +188,64 @@ function RegisterForm() {
     setFormData((prev) => ({
       ...prev,
       restaurantName: name,
-      slug: prev.slug === "" || prev.slug === prev.restaurantName.toLowerCase().replace(/[^a-z0-9]+/g, "-") ? generatedSlug : prev.slug,
+      slug: generatedSlug,
     }));
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: "logo" | "cover") => {
+  // File Upload Helper
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    field: "logo" | "cover"
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Reset input value so re-selecting same file triggers event
-    e.target.value = "";
-
-    // Upfront format & size checks
-    if (!file.type.startsWith("image/")) {
-      setError("Please select a valid image file (PNG, JPG, WEBP, GIF)");
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      setError("Image size exceeds 5MB limit. Please choose a smaller file.");
-      return;
-    }
-
-    const setter = type === "logo" ? setUploadingLogo : setUploadingCover;
-    setter(true);
-    setError(null);
+    if (field === "logo") setUploadingLogo(true);
+    else setUploadingCover(true);
 
     try {
-      const data = new FormData();
-      data.append("file", file);
-      data.append("folder", type);
+      const uploadData = new FormData();
+      uploadData.append("file", file);
+      uploadData.append("folder", "branding");
 
       const res = await fetch("/api/upload", {
         method: "POST",
-        body: data,
+        body: uploadData,
       });
-      const result = await res.json();
+
+      const data = await res.json();
       if (!res.ok) {
-        throw new Error(result.error || "Upload failed");
+        throw new Error(data.error || "Upload failed");
       }
-      setFormData((prev) => ({ ...prev, [type]: result.url }));
+
+      setFormData((prev) => ({ ...prev, [field]: data.url }));
     } catch (err: unknown) {
-      console.warn("Upload endpoint failed, using client-side reader fallback:", err);
-      // Fallback: Read file locally as Data URL so user is never blocked
-      try {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const dataUrl = event.target?.result as string;
-          if (dataUrl) {
-            setFormData((prev) => ({ ...prev, [type]: dataUrl }));
-            setError(null);
-          }
-        };
-        reader.readAsDataURL(file);
-      } catch {
-        setError((err as Error).message || "File upload failed");
-      }
+      console.warn("Server upload failed, converting to local preview:", err);
+      // Fallback: convert directly to base64 Data URL so the user never gets stuck
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setFormData((prev) => ({ ...prev, [field]: reader.result as string }));
+        }
+      };
+      reader.readAsDataURL(file);
     } finally {
-      setter(false);
+      if (field === "logo") setUploadingLogo(false);
+      else setUploadingCover(false);
     }
   };
 
   const validateStep1 = () => {
     if (!formData.name.trim()) return "Please enter your name";
-    if (!formData.email.trim() || !formData.email.includes("@")) return "Please enter a valid email address";
+    if (!formData.email.trim() || !formData.email.includes("@")) return "Please enter a valid email";
     if (formData.password.length < 6) return "Password must be at least 6 characters";
     if (!formData.restaurantName.trim()) return "Please enter your restaurant name";
-    if (!formData.slug.trim()) return "Please provide a valid URL slug";
+    if (!formData.slug.trim()) return "Please provide a URL slug";
+    return null;
+  };
+
+  const validateStep3 = () => {
+    if (!formData.phone.trim() || formData.phone.length < 8) return "Please enter a valid phone number";
     return null;
   };
 
@@ -171,6 +253,13 @@ function RegisterForm() {
     setError(null);
     if (step === 1) {
       const err = validateStep1();
+      if (err) {
+        setError(err);
+        return;
+      }
+    }
+    if (step === 3) {
+      const err = validateStep3();
       if (err) {
         setError(err);
         return;
@@ -187,6 +276,13 @@ function RegisterForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    const cleanUtr = formData.utrReference.trim();
+    if (!cleanUtr || cleanUtr.length < 8) {
+      setError("Please enter a valid 12-digit UPI Reference / UTR Number");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -226,12 +322,12 @@ function RegisterForm() {
             Register Your Restaurant
           </h1>
           <p className="text-sm text-stone-500 mt-1">
-            Setup your digital menu, QR codes, and review rewards in 3 quick steps
+            Setup your digital menu, QR codes, and review rewards in 4 simple steps
           </p>
 
           {/* Stepper Indicator */}
-          <div className="flex items-center justify-center gap-3 mt-8 max-w-sm mx-auto">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-center gap-2.5 mt-8 max-w-md mx-auto">
+            <div className="flex items-center gap-1.5">
               <span
                 className={`w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center ${
                   step >= 1 ? "bg-brand-500 text-white" : "bg-stone-200 text-stone-600"
@@ -239,10 +335,10 @@ function RegisterForm() {
               >
                 1
               </span>
-              <span className="text-xs font-semibold text-stone-700">Account</span>
+              <span className="text-xs font-semibold text-stone-700 hidden sm:inline">Account</span>
             </div>
-            <div className="w-8 h-0.5 bg-stone-200"></div>
-            <div className="flex items-center gap-2">
+            <div className="w-6 h-0.5 bg-stone-200"></div>
+            <div className="flex items-center gap-1.5">
               <span
                 className={`w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center ${
                   step >= 2 ? "bg-brand-500 text-white" : "bg-stone-200 text-stone-600"
@@ -250,10 +346,10 @@ function RegisterForm() {
               >
                 2
               </span>
-              <span className="text-xs font-semibold text-stone-700">Package</span>
+              <span className="text-xs font-semibold text-stone-700 hidden sm:inline">Plan</span>
             </div>
-            <div className="w-8 h-0.5 bg-stone-200"></div>
-            <div className="flex items-center gap-2">
+            <div className="w-6 h-0.5 bg-stone-200"></div>
+            <div className="flex items-center gap-1.5">
               <span
                 className={`w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center ${
                   step >= 3 ? "bg-brand-500 text-white" : "bg-stone-200 text-stone-600"
@@ -261,7 +357,18 @@ function RegisterForm() {
               >
                 3
               </span>
-              <span className="text-xs font-semibold text-stone-700">Onboarding</span>
+              <span className="text-xs font-semibold text-stone-700 hidden sm:inline">Details</span>
+            </div>
+            <div className="w-6 h-0.5 bg-stone-200"></div>
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center ${
+                  step >= 4 ? "bg-brand-500 text-white" : "bg-stone-200 text-stone-600"
+                }`}
+              >
+                4
+              </span>
+              <span className="text-xs font-semibold text-stone-700 hidden sm:inline">Payment</span>
             </div>
           </div>
         </div>
@@ -275,46 +382,49 @@ function RegisterForm() {
             </div>
           )}
 
-          {/* STEP 1: Owner and Restaurant Basics */}
+          {/* STEP 1: Basic Information */}
           {step === 1 && (
             <div className="space-y-6">
-              <h3 className="text-lg font-bold text-stone-900 border-b border-stone-100 pb-3">
-                Step 1: Owner & Restaurant Details
-              </h3>
+              <div className="border-b border-stone-100 pb-4">
+                <h2 className="text-lg font-bold text-stone-900">Step 1: Account & Restaurant</h2>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  Your credentials and public web link
+                </p>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
-                    Your Full Name
+                    Your Full Name <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     required
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="e.g. Chef Sanjeev"
-                    className="w-full px-4 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm text-stone-900"
+                    placeholder="e.g. Rahul Sharma"
+                    className="w-full px-4 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
-                    Email Address
+                    Email Address <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="email"
                     required
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    placeholder="owner@myrestaurant.com"
-                    className="w-full px-4 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm text-stone-900"
+                    placeholder="rahul@myrestaurant.com"
+                    className="w-full px-4 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
-                  Password
+                  Password <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="password"
@@ -322,113 +432,126 @@ function RegisterForm() {
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   placeholder="At least 6 characters"
-                  className="w-full px-4 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm text-stone-900"
+                  className="w-full px-4 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
-              <div className="border-t border-stone-100 pt-5">
-                <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
-                  Restaurant Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.restaurantName}
-                  onChange={(e) => handleRestaurantNameChange(e.target.value)}
-                  placeholder="e.g. Royal Biryani House"
-                  className="w-full px-4 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm text-stone-900 font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
-                  Menu URL Slug
-                </label>
-                <div className="flex items-center rounded-xl border border-stone-300 overflow-hidden bg-stone-50 focus-within:ring-2 focus-within:ring-brand-500">
-                  <span className="px-3.5 text-xs text-stone-400 font-medium">menumitra.com/m/</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-stone-100">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                    Restaurant Name <span className="text-red-500">*</span>
+                  </label>
                   <input
                     type="text"
                     required
-                    value={formData.slug}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
-                      })
-                    }
-                    placeholder="royal-biryani"
-                    className="flex-1 py-2.5 pr-4 bg-transparent border-0 focus:outline-none text-sm text-brand-700 font-bold"
+                    value={formData.restaurantName}
+                    onChange={(e) => handleRestaurantNameChange(e.target.value)}
+                    placeholder="e.g. Spice Symphony"
+                    className="w-full px-4 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
-                <p className="text-[11px] text-stone-400 mt-1">
-                  This creates your restaurant&apos;s unique QR menu link
-                </p>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                    Menu URL Slug <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-xs text-stone-400 font-mono">
+                      /r/
+                    </span>
+                    <input
+                      type="text"
+                      required
+                      value={formData.slug}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
+                        })
+                      }
+                      placeholder="spicesymphony"
+                      className="w-full pl-8 pr-4 py-2.5 rounded-xl border border-stone-300 text-sm font-mono text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div className="pt-4 flex justify-end">
-                <Button onClick={nextStep} className="px-6 font-bold shadow-md shadow-brand-500/20">
-                  Continue to Package Selection
+              <div className="pt-6 flex justify-end border-t border-stone-100">
+                <Button
+                  type="button"
+                  onClick={nextStep}
+                  className="px-8 py-3 text-base font-bold shadow-lg shadow-brand-500/25"
+                >
+                  Continue to Plan Selection
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </div>
             </div>
           )}
 
-          {/* STEP 2: Choose Subscription Package */}
+          {/* STEP 2: Package Selection */}
           {step === 2 && (
             <div className="space-y-6">
-              <div className="border-b border-stone-100 pb-3 flex items-center justify-between">
-                <h3 className="text-lg font-bold text-stone-900">Step 2: Choose Your Package</h3>
-                <span className="text-xs text-stone-500">Can be upgraded anytime</span>
+              <div className="border-b border-stone-100 pb-4">
+                <h2 className="text-lg font-bold text-stone-900">Step 2: Choose Your Plan</h2>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  Select the subscription that best matches your restaurant needs
+                </p>
               </div>
 
               {loadingPackages ? (
-                <div className="py-12 text-center text-stone-400 text-sm">Loading package details...</div>
+                <div className="py-12 text-center text-xs text-stone-400">Loading plans...</div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {packages.map((pkg) => {
                     const isSelected = formData.packageId === pkg.id;
-                    const isPremium = pkg.name === "PREMIUM";
+                    const isPopular = pkg.slug === "premium";
+
                     return (
                       <div
                         key={pkg.id}
                         onClick={() => setFormData({ ...formData, packageId: pkg.id })}
-                        className={`cursor-pointer rounded-2xl p-5 border-2 transition-all relative flex flex-col justify-between ${
+                        className={`relative rounded-2xl p-5 cursor-pointer border-2 transition-all flex flex-col justify-between ${
                           isSelected
-                            ? "border-brand-500 bg-brand-50/40 shadow-sm"
+                            ? "border-brand-500 bg-brand-50/40 shadow-soft"
                             : "border-stone-200 hover:border-stone-300 bg-white"
                         }`}
                       >
-                        {isPremium && (
-                          <div className="absolute -top-3 right-3 bg-amber-500 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1">
-                            <Sparkles className="w-2.5 h-2.5" /> Best Growth
+                        {isPopular && (
+                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-amber-500 to-brand-500 text-white text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full shadow-sm flex items-center gap-1">
+                            <Sparkles className="w-3 h-3" /> Most Popular
                           </div>
                         )}
+
                         <div>
-                          <div className="flex items-center justify-between">
-                            <h4 className="font-extrabold text-stone-900 text-base">{pkg.name}</h4>
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="font-bold text-stone-900">{pkg.name}</h3>
                             <div
                               className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                                isSelected ? "border-brand-500 bg-brand-500 text-white" : "border-stone-300"
+                                isSelected
+                                  ? "border-brand-500 bg-brand-500 text-white"
+                                  : "border-stone-300"
                               }`}
                             >
                               {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
                             </div>
                           </div>
-                          <div className="mt-2 flex items-baseline gap-1">
-                            <span className="text-2xl font-black text-stone-900">₹{pkg.price}</span>
-                            <span className="text-xs text-stone-500">/mo</span>
-                          </div>
-                          <p className="text-[11px] text-stone-500 mt-2 leading-relaxed">{pkg.description}</p>
-                        </div>
 
-                        <div className="mt-4 pt-3 border-t border-stone-100 space-y-1.5 text-xs text-stone-700">
-                          {pkg.featuresList.map((f, i) => (
-                            <div key={i} className="flex items-center gap-1.5">
-                              <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              <span className="capitalize">{f === "reviewReward" ? "Review Scratch Cards" : f}</span>
-                            </div>
-                          ))}
+                          <div className="mb-3">
+                            <span className="text-2xl font-black text-stone-900">₹{pkg.price}</span>
+                            <span className="text-xs text-stone-500"> /month</span>
+                          </div>
+
+                          <p className="text-xs text-stone-500 mb-4">{pkg.description}</p>
+
+                          <ul className="space-y-2 border-t border-stone-100 pt-3 text-xs text-stone-600">
+                            {pkg.featuresList.map((f, i) => (
+                              <li key={i} className="flex items-center gap-2">
+                                <Check className="w-3.5 h-3.5 text-brand-500 shrink-0" />
+                                <span>{f}</span>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       </div>
                     );
@@ -436,73 +559,59 @@ function RegisterForm() {
                 </div>
               )}
 
-              <div className="pt-4 flex items-center justify-between border-t border-stone-100">
-                <Button variant="ghost" onClick={prevStep} className="font-medium">
+              <div className="pt-6 flex items-center justify-between border-t border-stone-100">
+                <Button type="button" variant="ghost" onClick={prevStep} className="font-medium">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Back
                 </Button>
-                <Button onClick={nextStep} className="px-6 font-bold shadow-md shadow-brand-500/20">
-                  Continue to Onboarding Setup
+                <Button
+                  type="button"
+                  onClick={nextStep}
+                  className="px-8 py-3 text-base font-bold shadow-lg shadow-brand-500/25"
+                >
+                  Continue to Details
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </div>
             </div>
           )}
 
-          {/* STEP 3: Fast Onboarding Setup */}
+          {/* STEP 3: Restaurant Details & Logo */}
           {step === 3 && (
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <h3 className="text-lg font-bold text-stone-900 border-b border-stone-100 pb-3">
-                Step 3: Fast Onboarding Setup
-              </h3>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
-                    Phone / WhatsApp Contact
-                  </label>
-                  <div className="relative">
-                    <Phone className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      placeholder="+91 98765 43210"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
-                    Operating Timings
-                  </label>
-                  <div className="relative">
-                    <Clock className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      value={formData.timings}
-                      onChange={(e) => setFormData({ ...formData, timings: e.target.value })}
-                      placeholder="11:00 AM - 11:00 PM"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                  </div>
-                </div>
+            <div className="space-y-6">
+              <div className="border-b border-stone-100 pb-4">
+                <h2 className="text-lg font-bold text-stone-900">Step 3: Restaurant Details</h2>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  Branding and contact details for your menu and website
+                </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
-                    City / Region
-                  </label>
-                  <div className="relative">
-                    <MapPin className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                      Phone Number <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      required
+                      value={formData.phone}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      placeholder="e.g. +91 98765 43210"
+                      className="w-full px-4 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                      City
+                    </label>
                     <input
                       type="text"
                       value={formData.city}
                       onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                      placeholder="Mumbai, Delhi, Pune..."
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      placeholder="e.g. Mumbai, Delhi, Bengaluru"
+                      className="w-full px-4 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                     />
                   </div>
                 </div>
@@ -515,46 +624,55 @@ function RegisterForm() {
                     type="text"
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    placeholder="Shop 4, Main Market, MG Road"
+                    placeholder="Shop 4, Ground Floor, Linking Road, Bandra West"
                     className="w-full px-4 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
-                  Google Maps Review Link (For Scratch Card Rewards)
-                </label>
-                <div className="relative">
-                  <Globe className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="url"
-                    value={formData.googleReviewLink}
-                    onChange={(e) => setFormData({ ...formData, googleReviewLink: e.target.value })}
-                    placeholder="https://g.page/r/your-restaurant/review"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                      Business Timings
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.timings}
+                      onChange={(e) => setFormData({ ...formData, timings: e.target.value })}
+                      placeholder="11:00 AM - 11:00 PM"
+                      className="w-full px-4 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                      Google Review Link
+                    </label>
+                    <input
+                      type="url"
+                      value={formData.googleReviewLink}
+                      onChange={(e) => setFormData({ ...formData, googleReviewLink: e.target.value })}
+                      placeholder="https://g.page/r/your-place/review"
+                      className="w-full px-4 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
                 </div>
-                <p className="text-[11px] text-stone-400 mt-1">
-                  Customers who tap &quot;Review on Google&quot; will be taken directly here
-                </p>
-              </div>
 
-              {/* Logo & Cover Upload */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-stone-100 pt-5">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
+                {/* Logo Upload Section */}
+                <div className="pt-2 border-t border-stone-100">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-2">
                     Restaurant Logo
                   </label>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-4">
                     {formData.logo ? (
-                      <img
-                        src={formData.logo}
-                        alt="Logo"
-                        className="w-14 h-14 rounded-xl object-cover border border-stone-200"
-                      />
+                      <div className="w-16 h-16 rounded-2xl overflow-hidden border border-stone-200 bg-stone-50 flex items-center justify-center p-1 relative shadow-sm">
+                        <img
+                          src={formData.logo}
+                          alt="Logo Preview"
+                          className="w-full h-full object-contain rounded-xl"
+                        />
+                      </div>
                     ) : (
-                      <div className="w-14 h-14 rounded-xl bg-stone-100 border border-stone-200 flex items-center justify-center text-stone-400">
+                      <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-stone-200 bg-stone-50 flex items-center justify-center text-stone-400">
                         <UtensilsCrossed className="w-6 h-6" />
                       </div>
                     )}
@@ -616,12 +734,190 @@ function RegisterForm() {
                   Back
                 </Button>
                 <Button
-                  type="submit"
-                  isLoading={submitting}
+                  type="button"
+                  onClick={nextStep}
                   className="px-8 py-3 text-base font-bold shadow-lg shadow-brand-500/25"
                 >
+                  Continue to Payment (₹{finalAmount})
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 4: UPI QR Payment & Verification */}
+          {step === 4 && (
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="border-b border-stone-100 pb-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-bold text-stone-900">Step 4: Scan UPI QR & Pay</h2>
+                    <p className="text-xs text-stone-500 mt-0.5">
+                      Pay via Google Pay, PhonePe, Paytm, or BHIM to activate your subscription
+                    </p>
+                  </div>
+                  <span className="px-2.5 py-1 bg-amber-100 text-amber-900 text-xs font-bold rounded-lg uppercase tracking-wide">
+                    {selectedPkg?.name} Plan
+                  </span>
+                </div>
+              </div>
+
+              {/* Price summary */}
+              <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-bold text-stone-900">
+                    {selectedPkg?.name} Plan Subscription
+                  </h4>
+                  <p className="text-xs text-stone-500">
+                    Includes Digital Menu, QR Codes, and selected growth tools
+                  </p>
+                </div>
+
+                <div className="text-right">
+                  {discountAmount > 0 ? (
+                    <div>
+                      <span className="text-sm text-stone-400 line-through mr-2">₹{basePrice}</span>
+                      <span className="text-2xl font-black text-brand-600">₹{finalAmount}</span>
+                      <span className="text-xs text-emerald-600 block font-semibold">
+                        Discount Saved: ₹{discountAmount}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-2xl font-black text-brand-600">₹{finalAmount}</span>
+                  )}
+                  <span className="text-[10px] text-stone-400 block">GST Included</span>
+                </div>
+              </div>
+
+              {/* Promo code voucher */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Promo Code (e.g. SAVE20)"
+                  value={promoInput}
+                  onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                  disabled={validatingPromo || !!appliedPromo}
+                  className="flex-1 px-3.5 py-2 text-xs rounded-xl border border-stone-300 uppercase font-mono tracking-wider focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={validatingPromo || !promoInput.trim() || !!appliedPromo}
+                  onClick={handleApplyPromo}
+                  className="shrink-0 text-xs"
+                >
+                  {validatingPromo ? "Verifying..." : appliedPromo ? "Applied ✓" : "Apply Voucher"}
+                </Button>
+              </div>
+              {promoMessage && (
+                <p className="text-xs text-emerald-600 font-semibold">{promoMessage}</p>
+              )}
+
+              {/* QR and Payment Details Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center pt-2 border-t border-stone-100">
+                {/* UPI QR Display */}
+                <div className="flex flex-col items-center text-center p-4 rounded-2xl bg-white border-2 border-dashed border-stone-200 shadow-sm">
+                  <span className="text-xs font-bold text-stone-800 mb-2 flex items-center gap-1.5">
+                    <QrCode className="w-4 h-4 text-brand-500" /> Scan to Pay with Any UPI App
+                  </span>
+
+                  {qrDataUrl ? (
+                    <img
+                      src={qrDataUrl}
+                      alt="UPI QR Code"
+                      className="w-48 h-48 rounded-xl shadow-sm border border-stone-100"
+                    />
+                  ) : (
+                    <div className="w-48 h-48 rounded-xl bg-stone-100 animate-pulse flex items-center justify-center text-stone-400 text-xs">
+                      Generating QR...
+                    </div>
+                  )}
+
+                  {/* UPI ID Copy Card */}
+                  <div className="mt-3 w-full">
+                    <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-stone-50 border border-stone-200 text-xs">
+                      <span className="font-mono text-stone-700 truncate">{businessUpiId}</span>
+                      <button
+                        type="button"
+                        onClick={handleCopyUpi}
+                        className="text-brand-600 hover:text-brand-700 font-bold shrink-0 flex items-center gap-1"
+                      >
+                        {copiedUpi ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-600" /> Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" /> Copy UPI
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 mt-2 text-[10px] text-stone-400 font-medium">
+                    <span>Google Pay</span> • <span>PhonePe</span> • <span>Paytm</span> • <span>BHIM</span>
+                  </div>
+                </div>
+
+                {/* Instructions & UTR input */}
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <h5 className="text-xs font-bold uppercase tracking-wider text-stone-500">
+                      Payment Steps:
+                    </h5>
+                    <ol className="text-xs text-stone-600 space-y-1 list-decimal list-inside">
+                      <li>Scan the QR code with any UPI app on your phone.</li>
+                      <li>Pay exactly <strong>₹{finalAmount}</strong>.</li>
+                      <li>Find the 12-digit <strong>UPI Reference / UTR Number</strong> in your transaction receipt.</li>
+                      <li>Enter it below and click Launch Restaurant.</li>
+                    </ol>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-stone-800 flex items-center justify-between">
+                      <span>12-Digit UPI Reference / UTR Number <span className="text-red-500">*</span></span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. 430123456789"
+                      value={formData.utrReference}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          utrReference: e.target.value.replace(/[^0-9a-zA-Z]/g, ""),
+                        })
+                      }
+                      maxLength={22}
+                      className="w-full px-4 py-2.5 rounded-xl border border-stone-300 font-mono tracking-wider text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 uppercase"
+                    />
+                    <span className="text-[11px] text-stone-400 block">
+                      Admin verifies this reference to approve your account within 15–30 mins.
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-xs text-stone-500 pt-1">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Safe & Direct: 100% Zero platform gateway commission</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-6 flex items-center justify-between border-t border-stone-100">
+                <Button type="button" variant="ghost" onClick={prevStep} className="font-medium">
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Back
+                </Button>
+                <Button
+                  type="submit"
+                  isLoading={submitting}
+                  disabled={submitting || !formData.utrReference.trim()}
+                  className="px-8 py-3 text-base font-bold shadow-lg shadow-brand-500/25 bg-brand-600 hover:bg-brand-700 text-white"
+                >
                   <Sparkles className="w-4 h-4 mr-2 text-amber-200" />
-                  Launch My Restaurant
+                  Submit Payment & Launch Restaurant
                 </Button>
               </div>
             </form>
@@ -641,7 +937,13 @@ function RegisterForm() {
 
 export default function RegisterPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-[#faf8f5] flex items-center justify-center text-stone-400">Loading registration...</div>}>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#faf8f5] flex items-center justify-center text-stone-400">
+          Loading registration...
+        </div>
+      }
+    >
       <RegisterForm />
     </Suspense>
   );

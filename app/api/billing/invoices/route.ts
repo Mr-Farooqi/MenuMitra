@@ -10,7 +10,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [restaurant, invoices, packages] = await Promise.all([
+  const [restaurant, invoices, packages, pendingPayments] = await Promise.all([
     prisma.restaurant.findUnique({
       where: { id: session.restaurantId },
       include: { package: true },
@@ -22,6 +22,11 @@ export async function GET() {
     prisma.package.findMany({
       orderBy: { price: "asc" },
     }),
+    prisma.subscriptionPayment.findMany({
+      where: { restaurantId: session.restaurantId },
+      orderBy: { createdAt: "desc" },
+      include: { package: true },
+    }),
   ]);
 
   return NextResponse.json({
@@ -29,5 +34,6 @@ export async function GET() {
     currentPackage: restaurant?.package,
     invoices,
     packages,
+    pendingPayments,
   });
 }
