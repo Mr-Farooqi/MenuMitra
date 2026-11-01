@@ -44,8 +44,9 @@ export function validateUpload(file: File, options: { maxSizeBytes?: number; all
 }
 
 /**
- * Saves uploaded file to public/uploads directory.
- * Abstracted so S3/Cloudflare R2 can be plugged in by swapping this adapter.
+ * Saves uploaded file.
+ * Automatically handles Vercel / serverless read-only filesystem by generating data URIs,
+ * while saving to public/uploads in writable environments.
  */
 export async function uploadFile(
   file: File,
@@ -59,21 +60,44 @@ export async function uploadFile(
   const ext = path.extname(file.name) || (file.type === "image/png" ? ".png" : ".jpg");
   const uniqueName = `${crypto.randomUUID()}${ext}`;
 
-  // Local storage strategy
-  const relativeUploadDir = path.join("uploads", subDirectory);
-  const absoluteUploadDir = path.join(process.cwd(), "public", relativeUploadDir);
+  // If running in Vercel or serverless (read-only filesystem), encode as base64 data URI
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    const dataUri = `data:${file.type};base64,${buffer.toString("base64")}`;
+    return {
+      url: dataUri,
+      filename: uniqueName,
+      size: file.size,
+      mimeType: file.type,
+    };
+  }
 
-  await fs.mkdir(absoluteUploadDir, { recursive: true });
+  try {
+    // Local storage strategy for local development / VPS
+    const relativeUploadDir = path.join("uploads", subDirectory);
+    const absoluteUploadDir = path.join(process.cwd(), "public", relativeUploadDir);
 
-  const filePath = path.join(absoluteUploadDir, uniqueName);
-  await fs.writeFile(filePath, buffer);
+    await fs.mkdir(absoluteUploadDir, { recursive: true });
 
-  const publicUrl = `/${relativeUploadDir.replace(/\\/g, "/")}/${uniqueName}`;
+    const filePath = path.join(absoluteUploadDir, uniqueName);
+    await fs.writeFile(filePath, buffer);
 
-  return {
-    url: publicUrl,
-    filename: uniqueName,
-    size: file.size,
-    mimeType: file.type,
-  };
+    const publicUrl = `/${relativeUploadDir.replace(/\\/g, "/")}/${uniqueName}`;
+
+    return {
+      url: publicUrl,
+      filename: uniqueName,
+      size: file.size,
+      mimeType: file.type,
+    };
+  } catch (fsErr) {
+    console.warn("Local filesystem write failed, using data URI fallback:", fsErr);
+    // Robust fallback: if write fails for any reason, use data URI
+    const dataUri = `data:${file.type};base64,${buffer.toString("base64")}`;
+    return {
+      url: dataUri,
+      filename: uniqueName,
+      size: file.size,
+      mimeType: file.type,
+    };
+  }
 }

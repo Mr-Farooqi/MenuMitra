@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, Suspense, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -62,6 +62,7 @@ function RegisterForm() {
 
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch packages
   useEffect(() => {
@@ -105,6 +106,19 @@ function RegisterForm() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Reset input value so re-selecting same file triggers event
+    e.target.value = "";
+
+    // Upfront format & size checks
+    if (!file.type.startsWith("image/")) {
+      setError("Please select a valid image file (PNG, JPG, WEBP, GIF)");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image size exceeds 5MB limit. Please choose a smaller file.");
+      return;
+    }
+
     const setter = type === "logo" ? setUploadingLogo : setUploadingCover;
     setter(true);
     setError(null);
@@ -124,7 +138,21 @@ function RegisterForm() {
       }
       setFormData((prev) => ({ ...prev, [type]: result.url }));
     } catch (err: unknown) {
-      setError((err as Error).message || "File upload failed");
+      console.warn("Upload endpoint failed, using client-side reader fallback:", err);
+      // Fallback: Read file locally as Data URL so user is never blocked
+      try {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const dataUrl = event.target?.result as string;
+          if (dataUrl) {
+            setFormData((prev) => ({ ...prev, [type]: dataUrl }));
+            setError(null);
+          }
+        };
+        reader.readAsDataURL(file);
+      } catch {
+        setError((err as Error).message || "File upload failed");
+      }
     } finally {
       setter(false);
     }
@@ -530,24 +558,38 @@ function RegisterForm() {
                         <UtensilsCrossed className="w-6 h-6" />
                       </div>
                     )}
-                    <label className="cursor-pointer">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        isLoading={uploadingLogo}
-                        className="pointer-events-none"
-                      >
-                        <Upload className="w-3.5 h-3.5 mr-1.5" />
-                        Upload Logo
-                      </Button>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => handleFileUpload(e, "logo")}
-                      />
-                    </label>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          isLoading={uploadingLogo}
+                          onClick={() => logoInputRef.current?.click()}
+                          className="cursor-pointer font-semibold"
+                        >
+                          <Upload className="w-3.5 h-3.5 mr-1.5" />
+                          {formData.logo ? "Change Logo" : "Upload Logo"}
+                        </Button>
+                        <input
+                          ref={logoInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif"
+                          className="hidden"
+                          onChange={(e) => handleFileUpload(e, "logo")}
+                        />
+                        {formData.logo && (
+                          <button
+                            type="button"
+                            onClick={() => setFormData((prev) => ({ ...prev, logo: "" }))}
+                            className="text-xs text-red-500 hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50 transition"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-stone-400">PNG, JPG, or WEBP up to 5MB</p>
+                    </div>
                   </div>
                 </div>
 
