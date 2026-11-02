@@ -52,30 +52,39 @@ export async function GET(
     }
 
     // Status checks
-    if (coupon.status === "REDEEMED") {
-      return NextResponse.json(
-        { error: "This scratch card coupon has already been redeemed" },
-        { status: 400 }
-      );
-    }
-
     const isExpired = new Date(coupon.expiresAt) < new Date();
-    if (isExpired || coupon.status === "EXPIRED") {
-      return NextResponse.json(
-        { error: "This coupon code has expired" },
-        { status: 400 }
-      );
-    }
+    const currentStatus =
+      coupon.status === "REDEEMED"
+        ? "REDEEMED"
+        : isExpired || coupon.status === "EXPIRED"
+        ? "EXPIRED"
+        : "ACTIVE";
 
-    // Minimum bill check
+    // If billAmount is specified, this is a cart validation request
     const minBill = coupon.restaurant.reviewSettings?.minBill || 0;
-    if (billAmount !== null && billAmount < minBill) {
-      return NextResponse.json(
-        {
-          error: `Minimum bill of ₹${minBill} is required to apply this coupon. Your current subtotal is ₹${billAmount}.`,
-        },
-        { status: 400 }
-      );
+    if (billAmount !== null) {
+      if (currentStatus === "REDEEMED") {
+        return NextResponse.json(
+          { error: "This scratch card coupon has already been redeemed" },
+          { status: 400 }
+        );
+      }
+
+      if (currentStatus === "EXPIRED") {
+        return NextResponse.json(
+          { error: "This coupon code has expired" },
+          { status: 400 }
+        );
+      }
+
+      if (billAmount < minBill) {
+        return NextResponse.json(
+          {
+            error: `Minimum bill of ₹${minBill} is required to apply this coupon. Your current subtotal is ₹${billAmount}.`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // Calculate discount if bill provided
@@ -94,13 +103,13 @@ export async function GET(
     const finalBill = billAmount !== null ? Math.max(0, billAmount - discountAmount) : null;
 
     return NextResponse.json({
-      valid: true,
+      valid: currentStatus === "ACTIVE",
       coupon: {
         code: coupon.code,
         label: coupon.rewardRule.label,
         type: coupon.rewardRule.type,
         value: coupon.rewardRule.value,
-        status: "ACTIVE",
+        status: currentStatus,
         expiresAt: coupon.expiresAt,
         redeemedAt: coupon.redeemedAt,
         minBill,
