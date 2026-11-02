@@ -39,9 +39,13 @@ interface Order {
   customerName: string | null;
   phone: string | null;
   notes: string | null;
+  subtotal?: number | null;
+  discount?: number | null;
+  couponCode?: string | null;
   total: number;
   status: "NEW" | "PREPARING" | "READY" | "COMPLETED" | "CANCELLED";
   paymentMode: string;
+  paymentStatus?: string | null;
   createdAt: string;
   items: OrderItem[];
 }
@@ -224,6 +228,13 @@ export default function KitchenKanbanPage() {
               </div>
             )}
 
+            <div className="py-2 border-b border-black text-[11px] flex justify-between font-bold">
+              <span>PAYMENT: {printingKotOrder.paymentMode || "COUNTER"}</span>
+              {printingKotOrder.discount && printingKotOrder.discount > 0 ? (
+                <span>DISCOUNT: -{formatINR(printingKotOrder.discount)}</span>
+              ) : null}
+            </div>
+
             <div className="pt-3 text-center text-[10px]">
               <p>Server Signature: ___________________</p>
             </div>
@@ -317,10 +328,30 @@ export default function KitchenKanbanPage() {
                       className="cursor-pointer bg-white rounded-2xl p-4 border-2 border-blue-200 shadow-soft hover:shadow-soft-lg transition-all space-y-3 group"
                     >
                       <div className="flex items-center justify-between border-b border-stone-100 pb-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-sm font-black text-stone-900">
                             Table {order.tableNumber || "-"}
                           </span>
+                          <span
+                            className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                              order.paymentMode === "UPI"
+                                ? "bg-blue-100 text-blue-700"
+                                : order.paymentMode === "CASH"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-stone-100 text-stone-700"
+                            }`}
+                          >
+                            {order.paymentMode === "UPI"
+                              ? "UPI"
+                              : order.paymentMode === "CASH"
+                              ? "Cash"
+                              : "Counter"}
+                          </span>
+                          {order.discount && order.discount > 0 ? (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">
+                              🎁 -₹{order.discount}
+                            </span>
+                          ) : null}
                         </div>
                         <span className="text-[10px] font-mono text-stone-400">
                           #{order.id.slice(-4).toUpperCase()}
@@ -392,9 +423,26 @@ export default function KitchenKanbanPage() {
                       className="cursor-pointer bg-white rounded-2xl p-4 border border-amber-200 shadow-soft hover:shadow-soft-lg transition-all space-y-3"
                     >
                       <div className="flex items-center justify-between border-b border-stone-100 pb-2">
-                        <span className="text-sm font-black text-stone-900">
-                          Table {order.tableNumber || "-"}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-sm font-black text-stone-900">
+                            Table {order.tableNumber || "-"}
+                          </span>
+                          <span
+                            className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                              order.paymentMode === "UPI"
+                                ? "bg-blue-100 text-blue-700"
+                                : order.paymentMode === "CASH"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-stone-100 text-stone-700"
+                            }`}
+                          >
+                            {order.paymentMode === "UPI"
+                              ? "UPI"
+                              : order.paymentMode === "CASH"
+                              ? "Cash"
+                              : "Counter"}
+                          </span>
+                        </div>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -556,14 +604,24 @@ export default function KitchenKanbanPage() {
             maxWidth="lg"
           >
             <div className="space-y-4">
-              <div className="flex items-center justify-between p-3 rounded-2xl bg-stone-50 border border-stone-200 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 rounded-2xl bg-stone-50 border border-stone-200 text-xs">
                 <div>
                   <p className="text-stone-400">Order ID:</p>
-                  <p className="font-mono font-bold text-stone-800">{selectedOrder.id}</p>
+                  <p className="font-mono font-bold text-stone-800">#{selectedOrder.id.slice(-6).toUpperCase()}</p>
                 </div>
                 <div>
                   <p className="text-stone-400">Guest:</p>
                   <p className="font-bold text-stone-800">{selectedOrder.customerName || "Dine-in"}</p>
+                </div>
+                <div>
+                  <p className="text-stone-400">Payment Option:</p>
+                  <p className="font-bold text-stone-800">
+                    {selectedOrder.paymentMode === "UPI"
+                      ? "UPI QR"
+                      : selectedOrder.paymentMode === "CASH"
+                      ? "Cash on Table"
+                      : "Pay at Counter"}
+                  </p>
                 </div>
                 <div>
                   <p className="text-stone-400">Time:</p>
@@ -605,9 +663,21 @@ export default function KitchenKanbanPage() {
                 </div>
               </div>
 
-              <div className="border-t border-stone-200 pt-3 flex items-center justify-between text-sm font-black text-stone-900">
-                <span>Grand Total:</span>
-                <span className="text-brand-600 text-base">{formatINR(selectedOrder.total)}</span>
+              <div className="border-t border-stone-200 pt-3 space-y-1 text-xs">
+                <div className="flex items-center justify-between text-stone-600">
+                  <span>Items Subtotal:</span>
+                  <span className="font-bold">{formatINR(selectedOrder.subtotal || selectedOrder.total)}</span>
+                </div>
+                {selectedOrder.discount && selectedOrder.discount > 0 ? (
+                  <div className="flex items-center justify-between text-emerald-700 font-bold">
+                    <span>Coupon Reward ({selectedOrder.couponCode || "Discount"}):</span>
+                    <span>-{formatINR(selectedOrder.discount)}</span>
+                  </div>
+                ) : null}
+                <div className="flex items-center justify-between text-sm font-black text-stone-900 pt-1 border-t border-stone-100">
+                  <span>Grand Total:</span>
+                  <span className="text-brand-600 text-base">{formatINR(selectedOrder.total)}</span>
+                </div>
               </div>
 
               <div className="pt-3 border-t border-stone-100 flex flex-wrap items-center justify-between gap-2">

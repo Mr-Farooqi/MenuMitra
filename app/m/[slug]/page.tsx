@@ -3,6 +3,7 @@
 import React, { useState, useEffect, Suspense } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import QRCode from "qrcode";
 import {
   Search,
   ShoppingBag,
@@ -19,6 +20,13 @@ import {
   AlertCircle,
   Phone,
   MessageSquare,
+  CreditCard,
+  QrCode,
+  Copy,
+  Receipt,
+  ChefHat,
+  Bell,
+  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatINR } from "@/lib/utils";
@@ -97,6 +105,89 @@ function CustomerMenuContent() {
 
   // Review Reward Popup
   const [showReviewPopup, setShowReviewPopup] = useState(false);
+
+  // Active Order Tracking on Menu
+  const [activeOrder, setActiveOrder] = useState<{
+    id: string;
+    tableNumber: number | null;
+    status: string;
+    total: number;
+  } | null>(null);
+
+  // Coupon Code State
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    code: string;
+    label: string;
+    discountAmount: number;
+  } | null>(null);
+  const [validatingCoupon, setValidatingCoupon] = useState(false);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponMessage, setCouponMessage] = useState<string | null>(null);
+
+  // Payment Options State
+  const [paymentMode, setPaymentMode] = useState<"PAY_AT_COUNTER" | "UPI" | "CASH">("PAY_AT_COUNTER");
+  const [businessUpiId, setBusinessUpiId] = useState("menumitra@icici");
+  const [qrDataUrl, setQrDataUrl] = useState<string>("");
+  const [copiedUpi, setCopiedUpi] = useState(false);
+  const [utrReference, setUtrReference] = useState("");
+
+  // Poll & Track Active Order from localStorage
+  useEffect(() => {
+    if (!slug) return;
+    const storageKey = `menumitra_active_order_${slug}`;
+
+    const checkActiveOrder = async () => {
+      try {
+        const saved = localStorage.getItem(storageKey);
+        if (!saved) {
+          setActiveOrder(null);
+          return;
+        }
+        const parsed = JSON.parse(saved);
+        if (!parsed.orderId) return;
+
+        const res = await fetch(`/api/orders/${parsed.orderId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.order) {
+            const ord = data.order;
+            const orderAgeHours = (Date.now() - new Date(ord.createdAt).getTime()) / (1000 * 60 * 60);
+            if (orderAgeHours < 8 && ord.status !== "CANCELLED") {
+              setActiveOrder({
+                id: ord.id,
+                tableNumber: ord.tableNumber,
+                status: ord.status,
+                total: ord.total,
+              });
+            } else {
+              setActiveOrder(null);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Could not check active order:", e);
+      }
+    };
+
+    checkActiveOrder();
+    const interval = setInterval(checkActiveOrder, 8000);
+    return () => clearInterval(interval);
+  }, [slug]);
+
+  // Load public platform UPI settings
+  useEffect(() => {
+    async function loadUpi() {
+      try {
+        const res = await fetch("/api/public/platform-settings");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.businessUpiId) setBusinessUpiId(data.businessUpiId);
+        }
+      } catch {}
+    }
+    loadUpi();
+  }, []);
 
   // Fetch Menu Data
   useEffect(() => {
@@ -187,6 +278,72 @@ function CustomerMenuContent() {
 
   const cartTotal = cart.reduce((sum, item) => sum + item.item.price * item.quantity, 0);
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const couponDiscount = appliedCoupon ? appliedCoupon.discountAmount : 0;
+  const finalOrderAmount = Math.max(0, cartTotal - couponDiscount);
+
+  // Dynamic UPI URI
+  const upiPayeeId = restaurant?.phone
+    ? `${restaurant.phone.replace(/[^0-9]/g, "")}@upi`
+    : businessUpiId;
+  const upiPayeeName = restaurant?.name || "Restaurant";
+  const upiUri = `upi://pay?pa=${encodeURIComponent(upiPayeeId)}&pn=${encodeURIComponent(
+    upiPayeeName
+  )}&am=${finalOrderAmount.toFixed(2)}&cu=INR&tn=Table${orderTable}_${restaurant?.slug?.toUpperCase() || "ORDER"}`;
+
+  // QR Code generator
+  useEffect(() => {
+    if (paymentMode !== "UPI" || finalOrderAmount <= 0) return;
+    QRCode.toDataURL(upiUri, {
+      width: 200,
+      margin: 1,
+      color: { dark: "#1c1917", light: "#ffffff" },
+    })
+      .then((url) => setQrDataUrl(url))
+      .catch((err) => console.error("QR gen error:", err));
+  }, [paymentMode, finalOrderAmount, upiUri]);
+
+  const handleCopyUpi = () => {
+    navigator.clipboard.writeText(upiPayeeId);
+    setCopiedUpi(true);
+    setTimeout(() => setCopiedUpi(false), 2000);
+  };
+
+  // Coupon handlers
+  const handleApplyCoupon = async () => {
+    if (!couponInput.trim()) return;
+    setValidatingCoupon(true);
+    setCouponError(null);
+    setCouponMessage(null);
+
+    try {
+      const cleanCode = couponInput.trim().toUpperCase();
+      const res = await fetch(
+        `/api/public/coupon/${encodeURIComponent(cleanCode)}?slug=${encodeURIComponent(slug)}&bill=${cartTotal}`
+      );
+      const data = await res.json();
+      if (res.ok && data.valid) {
+        setAppliedCoupon({
+          code: data.coupon.code,
+          label: data.coupon.label,
+          discountAmount: data.coupon.discountAmount,
+        });
+        setCouponMessage(data.message || `🎉 Coupon ${data.coupon.code} applied!`);
+      } else {
+        setCouponError(data.error || "Invalid coupon code");
+      }
+    } catch {
+      setCouponError("Could not validate coupon");
+    } finally {
+      setValidatingCoupon(false);
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponInput("");
+    setCouponMessage(null);
+    setCouponError(null);
+  };
 
   // Submit Order
   const handlePlaceOrder = async (e: React.FormEvent) => {
@@ -201,7 +358,9 @@ function CustomerMenuContent() {
         customerName: customerName.trim() || "Dine-in Guest",
         phone: customerPhone.trim() || undefined,
         notes: orderNotes.trim() || undefined,
-        paymentMode: "PAY_AT_COUNTER",
+        paymentMode,
+        couponCode: appliedCoupon?.code || undefined,
+        utrReference: paymentMode === "UPI" && utrReference.trim() ? utrReference.trim() : undefined,
         items: cart.map((i) => ({
           menuItemId: i.item.id,
           quantity: i.quantity,
@@ -219,8 +378,21 @@ function CustomerMenuContent() {
         throw new Error(data.error || "Failed to place order");
       }
 
+      // Persist active order for immediate tracking on menu
+      localStorage.setItem(
+        `menumitra_active_order_${slug}`,
+        JSON.stringify({
+          orderId: data.orderId,
+          tableNumber: orderTable,
+          createdAt: Date.now(),
+          total: data.total,
+        })
+      );
+
       // Clear cart and redirect to live tracking page
       setCart([]);
+      setAppliedCoupon(null);
+      setCouponInput("");
       setCartDrawerOpen(false);
       router.push(`/order/${data.orderId}`);
     } catch (err: unknown) {
@@ -293,14 +465,72 @@ function CustomerMenuContent() {
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
 
-        {/* Floating Table Badge */}
-        <div className="absolute top-4 right-4 flex items-center gap-2">
+        {/* Floating Table Badge & Active Order Button */}
+        <div className="absolute top-4 right-4 flex items-center gap-2 z-20">
+          {activeOrder && (
+            <Link href={`/order/${activeOrder.id}`}>
+              <div className="px-3 py-1 rounded-full bg-brand-500 hover:bg-brand-600 text-white text-xs font-black shadow-md flex items-center gap-1.5 border border-brand-400 transition animate-pulse">
+                <ChefHat className="w-3.5 h-3.5" />
+                <span>
+                  Order #{activeOrder.id.slice(-4).toUpperCase()} (
+                  {activeOrder.status === "NEW"
+                    ? "Received"
+                    : activeOrder.status === "PREPARING"
+                    ? "Cooking"
+                    : activeOrder.status === "READY"
+                    ? "Ready!"
+                    : activeOrder.status}
+                  )
+                </span>
+              </div>
+            </Link>
+          )}
           <div className="px-3 py-1 rounded-full bg-white/95 backdrop-blur-md text-stone-900 text-xs font-black shadow-md flex items-center gap-1.5 border border-white">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span>Table {orderTable}</span>
           </div>
         </div>
       </div>
+
+      {/* Active Order Live Floating Notification Banner */}
+      {activeOrder && (
+        <div className="sticky top-3 z-30 px-4 max-w-2xl mx-auto mb-2 animate-in slide-in-from-top duration-300">
+          <Link href={`/order/${activeOrder.id}`}>
+            <div className="bg-stone-900/95 backdrop-blur-md text-white rounded-2xl p-3 shadow-soft-lg flex items-center justify-between border border-amber-500/50 hover:border-amber-400 transition-all">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center font-black animate-pulse">
+                  <ChefHat className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-400">
+                      Active Order #{activeOrder.id.slice(-4).toUpperCase()}
+                    </span>
+                    <span className="text-[9px] px-1.5 py-0.2 bg-amber-500/20 text-amber-300 font-bold rounded-full">
+                      Table {activeOrder.tableNumber || "-"}
+                    </span>
+                  </div>
+                  <p className="text-xs font-extrabold text-white">
+                    Kitchen:{" "}
+                    <span className="text-amber-400 uppercase">
+                      {activeOrder.status === "NEW"
+                        ? "Order Received by Chef"
+                        : activeOrder.status === "PREPARING"
+                        ? "Currently Cooking in Kitchen"
+                        : activeOrder.status === "READY"
+                        ? "Ready to Serve at Table!"
+                        : activeOrder.status}
+                    </span>
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center text-xs font-bold text-amber-400">
+                Track Live &rarr;
+              </div>
+            </div>
+          </Link>
+        </div>
+      )}
 
       {/* Restaurant Info Header */}
       <div className="max-w-2xl mx-auto px-4 -mt-12 relative z-10">
@@ -666,9 +896,232 @@ function CustomerMenuContent() {
                 />
               </div>
 
-              <div className="pt-2 flex items-center justify-between text-sm font-extrabold text-stone-900">
-                <span>Grand Total:</span>
-                <span className="text-base text-brand-600 font-black">{formatINR(cartTotal)}</span>
+              {/* COUPON VOUCHER (Scratch Card Reward Code) */}
+              <div className="p-3 bg-amber-50/70 rounded-2xl border border-amber-200/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                    <Gift className="w-3.5 h-3.5 text-amber-600" /> Have a Scratch Card Coupon?
+                  </span>
+                  {appliedCoupon && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveCoupon}
+                      className="text-[11px] text-red-600 font-bold hover:underline"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+
+                {!appliedCoupon ? (
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      placeholder="Enter Coupon (e.g. MM-REW-XYZ)"
+                      value={couponInput}
+                      onChange={(e) => {
+                        setCouponInput(e.target.value.toUpperCase());
+                        setCouponError(null);
+                      }}
+                      className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-amber-300 font-mono uppercase bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={validatingCoupon || !couponInput.trim()}
+                      onClick={handleApplyCoupon}
+                      className="shrink-0 text-xs h-8 px-3 font-bold border-amber-400 text-amber-900 bg-amber-100 hover:bg-amber-200"
+                    >
+                      {validatingCoupon ? "Checking..." : "Apply"}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-xs text-emerald-800">
+                    <span className="font-bold flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      {appliedCoupon.label} ({appliedCoupon.code})
+                    </span>
+                    <span className="font-black text-emerald-700">
+                      -{formatINR(appliedCoupon.discountAmount)}
+                    </span>
+                  </div>
+                )}
+
+                {couponError && (
+                  <p className="text-[11px] text-red-600 font-semibold">{couponError}</p>
+                )}
+                {couponMessage && !appliedCoupon && (
+                  <p className="text-[11px] text-emerald-700 font-semibold">{couponMessage}</p>
+                )}
+              </div>
+
+              {/* PAYMENT OPTION SELECTOR */}
+              <div className="space-y-2 pt-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-500">
+                  Select Payment Option *
+                </label>
+
+                <div className="space-y-1.5">
+                  {/* Option 1: Pay at Counter */}
+                  <label
+                    className={`flex items-start gap-2.5 p-2.5 rounded-2xl border cursor-pointer transition-all ${
+                      paymentMode === "PAY_AT_COUNTER"
+                        ? "bg-brand-50/70 border-brand-500 ring-1 ring-brand-500 shadow-sm"
+                        : "bg-white border-stone-200 hover:bg-stone-50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentMode"
+                      value="PAY_AT_COUNTER"
+                      checked={paymentMode === "PAY_AT_COUNTER"}
+                      onChange={() => setPaymentMode("PAY_AT_COUNTER")}
+                      className="mt-0.5 text-brand-600 focus:ring-brand-500"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <CreditCard className="w-3.5 h-3.5 text-stone-700" />
+                        <span className="text-xs font-bold text-stone-900">
+                          Pay at Counter (Cash / Card after meal)
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-stone-500 mt-0.5">
+                        Enjoy your meal, pay at counter when leaving.
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Option 2: Pay via UPI QR */}
+                  <label
+                    className={`flex items-start gap-2.5 p-2.5 rounded-2xl border cursor-pointer transition-all ${
+                      paymentMode === "UPI"
+                        ? "bg-brand-50/70 border-brand-500 ring-1 ring-brand-500 shadow-sm"
+                        : "bg-white border-stone-200 hover:bg-stone-50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentMode"
+                      value="UPI"
+                      checked={paymentMode === "UPI"}
+                      onChange={() => setPaymentMode("UPI")}
+                      className="mt-0.5 text-brand-600 focus:ring-brand-500"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <QrCode className="w-3.5 h-3.5 text-brand-600" />
+                        <span className="text-xs font-bold text-stone-900">
+                          Pay via UPI QR (GPay, PhonePe, Paytm)
+                        </span>
+                        <span className="px-1.5 py-0.2 text-[9px] font-black bg-emerald-100 text-emerald-800 rounded">
+                          Instant
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-stone-500 mt-0.5">
+                        Scan UPI QR code directly on your mobile screen.
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Option 3: Cash on Table */}
+                  <label
+                    className={`flex items-start gap-2.5 p-2.5 rounded-2xl border cursor-pointer transition-all ${
+                      paymentMode === "CASH"
+                        ? "bg-brand-50/70 border-brand-500 ring-1 ring-brand-500 shadow-sm"
+                        : "bg-white border-stone-200 hover:bg-stone-50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentMode"
+                      value="CASH"
+                      checked={paymentMode === "CASH"}
+                      onChange={() => setPaymentMode("CASH")}
+                      className="mt-0.5 text-brand-600 focus:ring-brand-500"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <Receipt className="w-3.5 h-3.5 text-stone-700" />
+                        <span className="text-xs font-bold text-stone-900">
+                          Cash on Table
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-stone-500 mt-0.5">
+                        Pay cash directly to server at Table {orderTable}.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* If UPI is selected, display Dynamic QR and UPI links */}
+                {paymentMode === "UPI" && (
+                  <div className="mt-2 p-3 bg-white rounded-2xl border border-brand-200 shadow-sm text-center space-y-2.5 animate-in fade-in">
+                    <div className="flex items-center justify-center gap-1 text-xs font-bold text-stone-800">
+                      <QrCode className="w-3.5 h-3.5 text-brand-600" />
+                      Scan to Pay {formatINR(finalOrderAmount)}
+                    </div>
+
+                    {qrDataUrl ? (
+                      <img
+                        src={qrDataUrl}
+                        alt="UPI QR Code"
+                        className="w-36 h-36 mx-auto rounded-xl border border-stone-200 shadow-sm"
+                      />
+                    ) : (
+                      <div className="w-36 h-36 mx-auto rounded-xl bg-stone-100 flex items-center justify-center text-xs text-stone-400">
+                        Generating QR...
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-center gap-2">
+                      <a
+                        href={upiUri}
+                        className="inline-flex items-center justify-center px-3 py-1.5 rounded-xl bg-brand-500 text-white text-xs font-bold hover:bg-brand-600 transition shadow-sm"
+                      >
+                        Open in UPI App
+                      </a>
+                      <button
+                        type="button"
+                        onClick={handleCopyUpi}
+                        className="px-2.5 py-1.5 rounded-xl bg-stone-100 text-stone-700 text-xs font-semibold hover:bg-stone-200 transition"
+                      >
+                        {copiedUpi ? "Copied ✓" : "Copy UPI"}
+                      </button>
+                    </div>
+
+                    <div>
+                      <input
+                        type="text"
+                        maxLength={12}
+                        value={utrReference}
+                        onChange={(e) => setUtrReference(e.target.value)}
+                        placeholder="Optional: Enter 12-digit UPI UTR"
+                        className="w-full text-center px-3 py-1.5 text-xs font-mono rounded-xl border border-stone-300"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Price Breakdown */}
+              <div className="pt-2 border-t border-stone-200 space-y-1 text-xs">
+                <div className="flex items-center justify-between text-stone-600">
+                  <span>Items Subtotal:</span>
+                  <span className="font-bold">{formatINR(cartTotal)}</span>
+                </div>
+                {appliedCoupon && (
+                  <div className="flex items-center justify-between text-emerald-700 font-bold">
+                    <span>Coupon Discount ({appliedCoupon.code}):</span>
+                    <span>-{formatINR(appliedCoupon.discountAmount)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-sm font-black text-stone-900 pt-1 border-t border-stone-100">
+                  <span>Total to Pay:</span>
+                  <span className="text-base text-brand-600 font-black">
+                    {formatINR(finalOrderAmount)}
+                  </span>
+                </div>
               </div>
 
               <Button
@@ -676,7 +1129,7 @@ function CustomerMenuContent() {
                 isLoading={submittingOrder}
                 className="w-full py-3 text-sm font-black shadow-lg shadow-brand-500/25"
               >
-                Send Order to Kitchen &rarr;
+                Confirm & Place Order ({formatINR(finalOrderAmount)}) &rarr;
               </Button>
             </form>
           </div>

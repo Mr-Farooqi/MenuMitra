@@ -132,9 +132,13 @@ model Order {
   customerName String?
   phone        String?
   notes        String?
+  subtotal     Float?      @default(0)
+  discount     Float?      @default(0)
+  couponCode   String?
   total        Float       @default(0)
   status       String      @default("NEW") // NEW, PREPARING, READY, COMPLETED, CANCELLED
   paymentMode  String      @default("PAY_AT_COUNTER") // PAY_AT_COUNTER, CASH, UPI, ONLINE
+  paymentStatus String?    @default("PENDING") // PENDING, PAID
   items        OrderItem[]
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt

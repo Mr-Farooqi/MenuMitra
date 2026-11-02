@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import QRCode from "qrcode";
 import {
   UtensilsCrossed,
   CheckCircle2,
@@ -13,6 +14,11 @@ import {
   ArrowLeft,
   ShoppingBag,
   ExternalLink,
+  CreditCard,
+  QrCode,
+  Receipt,
+  Gift,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatINR, formatDateTime } from "@/lib/utils";
@@ -31,9 +37,13 @@ interface OrderData {
   customerName: string | null;
   phone: string | null;
   notes: string | null;
+  subtotal?: number | null;
+  discount?: number | null;
+  couponCode?: string | null;
   total: number;
   status: "NEW" | "PREPARING" | "READY" | "COMPLETED" | "CANCELLED";
   paymentMode: string;
+  paymentStatus?: string | null;
   createdAt: string;
   items: OrderItem[];
   restaurant: {
@@ -61,6 +71,8 @@ export default function OrderTrackingPage() {
   const [order, setOrder] = useState<OrderData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string>("");
+  const [copiedUpi, setCopiedUpi] = useState(false);
 
   const fetchOrder = async () => {
     try {
@@ -70,12 +82,45 @@ export default function OrderTrackingPage() {
         throw new Error(data.error || "Order not found");
       }
       setOrder(data.order);
+
+      // Persist active order in localStorage for continuous menu tracking
+      if (data.order?.restaurant?.slug) {
+        localStorage.setItem(
+          `menumitra_active_order_${data.order.restaurant.slug}`,
+          JSON.stringify({
+            orderId: data.order.id,
+            tableNumber: data.order.tableNumber,
+            status: data.order.status,
+            createdAt: data.order.createdAt,
+            total: data.order.total,
+          })
+        );
+      }
     } catch (err: unknown) {
       setError((err as Error).message || "Could not track order");
     } finally {
       setLoading(false);
     }
   };
+
+  // Generate UPI QR if payment is UPI
+  useEffect(() => {
+    if (!order || order.paymentMode !== "UPI" || order.paymentStatus === "PAID") return;
+    const upiPayeeId = order.restaurant.phone
+      ? `${order.restaurant.phone.replace(/[^0-9]/g, "")}@upi`
+      : "menumitra@icici";
+    const upiUri = `upi://pay?pa=${encodeURIComponent(upiPayeeId)}&pn=${encodeURIComponent(
+      order.restaurant.name
+    )}&am=${order.total.toFixed(2)}&cu=INR&tn=Table${order.tableNumber || ""}_${order.id.slice(-6).toUpperCase()}`;
+
+    QRCode.toDataURL(upiUri, {
+      width: 180,
+      margin: 1,
+      color: { dark: "#1c1917", light: "#ffffff" },
+    })
+      .then((url) => setQrDataUrl(url))
+      .catch((err) => console.error("UPI QR gen error:", err));
+  }, [order]);
 
   // Poll order status every 5s
   useEffect(() => {
@@ -215,10 +260,110 @@ export default function OrderTrackingPage() {
             </div>
           )}
 
-          <div className="pt-3 border-t border-stone-200 flex items-center justify-between font-black text-base text-stone-900">
-            <span>Total Bill:</span>
-            <span className="text-brand-600 text-lg">{formatINR(order.total)}</span>
+          {/* Pricing breakdown */}
+          <div className="pt-3 border-t border-stone-200 space-y-1.5 text-xs">
+            <div className="flex items-center justify-between text-stone-600">
+              <span>Items Subtotal:</span>
+              <span className="font-bold">{formatINR(order.subtotal || order.total)}</span>
+            </div>
+
+            {order.discount && order.discount > 0 && (
+              <div className="flex items-center justify-between text-emerald-700 font-bold">
+                <span className="flex items-center gap-1">
+                  <Gift className="w-3.5 h-3.5 text-emerald-600" />
+                  Scratch Card Coupon ({order.couponCode || "Reward"}):
+                </span>
+                <span>-{formatINR(order.discount)}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between font-black text-base text-stone-900 pt-2 border-t border-stone-100">
+              <span>Total Bill:</span>
+              <span className="text-brand-600 text-lg">{formatINR(order.total)}</span>
+            </div>
           </div>
+        </div>
+
+        {/* Payment Option & Status Card */}
+        <div className="bg-white rounded-3xl p-5 shadow-soft border border-stone-200 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {order.paymentMode === "UPI" ? (
+                <QrCode className="w-4 h-4 text-brand-600" />
+              ) : order.paymentMode === "CASH" ? (
+                <Receipt className="w-4 h-4 text-stone-700" />
+              ) : (
+                <CreditCard className="w-4 h-4 text-stone-700" />
+              )}
+              <span className="text-xs font-bold text-stone-900">
+                {order.paymentMode === "UPI"
+                  ? "UPI Digital Payment"
+                  : order.paymentMode === "CASH"
+                  ? "Cash on Table"
+                  : "Pay at Counter (Cash / Card)"}
+              </span>
+            </div>
+
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                order.paymentStatus === "PAID"
+                  ? "bg-emerald-100 text-emerald-800"
+                  : "bg-amber-100 text-amber-800"
+              }`}
+            >
+              {order.paymentStatus === "PAID" ? "PAID ✓" : "PAYMENT PENDING"}
+            </span>
+          </div>
+
+          {/* If UPI and pending, show QR Code & Pay link */}
+          {order.paymentMode === "UPI" && order.paymentStatus !== "PAID" && qrDataUrl && (
+            <div className="p-3 bg-brand-50/50 rounded-2xl border border-brand-200/80 text-center space-y-2">
+              <p className="text-xs font-bold text-stone-800">
+                Scan to Pay {formatINR(order.total)}
+              </p>
+              <img
+                src={qrDataUrl}
+                alt="UPI QR Code"
+                className="w-32 h-32 mx-auto rounded-xl border border-stone-200 shadow-sm"
+              />
+              <div className="flex items-center justify-center gap-2">
+                <a
+                  href={`upi://pay?pa=${encodeURIComponent(
+                    order.restaurant.phone
+                      ? `${order.restaurant.phone.replace(/[^0-9]/g, "")}@upi`
+                      : "menumitra@icici"
+                  )}&pn=${encodeURIComponent(order.restaurant.name)}&am=${order.total.toFixed(
+                    2
+                  )}&cu=INR`}
+                  className="px-3 py-1.5 rounded-xl bg-brand-500 text-white text-xs font-bold hover:bg-brand-600 shadow-sm"
+                >
+                  Open in UPI App
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const upiId = order.restaurant.phone
+                      ? `${order.restaurant.phone.replace(/[^0-9]/g, "")}@upi`
+                      : "menumitra@icici";
+                    navigator.clipboard.writeText(upiId);
+                    setCopiedUpi(true);
+                    setTimeout(() => setCopiedUpi(false), 2000);
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-stone-100 text-stone-700 text-xs font-semibold hover:bg-stone-200"
+                >
+                  {copiedUpi ? "Copied ✓" : "Copy UPI"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <p className="text-[11px] text-stone-500 leading-relaxed">
+            {order.paymentMode === "PAY_AT_COUNTER"
+              ? "You can settle this bill at the counter after finishing your meal."
+              : order.paymentMode === "CASH"
+              ? "Your server will bring the bill and collect cash at Table " + (order.tableNumber || "-") + "."
+              : "Show payment confirmation or UTR to your server once paid."}
+          </p>
         </div>
 
         {/* Bottom Actions */}

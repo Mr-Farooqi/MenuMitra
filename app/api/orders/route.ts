@@ -13,6 +13,8 @@ const createOrderSchema = z.object({
   phone: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   paymentMode: z.string().default("PAY_AT_COUNTER"),
+  couponCode: z.string().optional().nullable(),
+  utrReference: z.string().optional().nullable(),
   items: z
     .array(
       z.object({
@@ -36,13 +38,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { restaurantSlug, tableNumber, customerName, phone, notes, paymentMode, items } =
-      result.data;
+    const {
+      restaurantSlug,
+      tableNumber,
+      customerName,
+      phone,
+      notes,
+      paymentMode,
+      couponCode,
+      utrReference,
+      items,
+    } = result.data;
 
     // Find restaurant and verify package has orders feature
     const restaurant = await prisma.restaurant.findUnique({
       where: { slug: restaurantSlug.toLowerCase() },
-      include: { package: true },
+      include: {
+        package: true,
+        reviewSettings: true,
+      },
     });
 
     if (!restaurant) {
@@ -97,38 +111,134 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Create Order with Prisma Transaction
-    const newOrder = await prisma.$transaction(async (tx) => {
-      const order = await tx.order.create({
-        data: {
-          restaurantId: restaurant.id,
-          tableNumber: tableNumber || null,
-          customerName: customerName || "Dine-in Guest",
-          phone: phone || null,
-          notes: notes || null,
-          total: calculatedTotal,
-          status: "NEW",
-          paymentMode: paymentMode || "PAY_AT_COUNTER",
-          items: {
-            create: orderItemsData,
-          },
-        },
-        include: {
-          items: true,
-        },
+    // Validate Coupon if provided
+    let appliedCouponId: string | null = null;
+    let appliedCouponCode: string | null = null;
+    let discountAmount = 0;
+
+    if (couponCode && couponCode.trim()) {
+      const cleanCoupon = couponCode.trim().toUpperCase();
+      const coupon = await prisma.coupon.findUnique({
+        where: { code: cleanCoupon },
+        include: { rewardRule: true },
       });
-      return order;
-    });
+
+      if (!coupon) {
+        return NextResponse.json(
+          { error: `Coupon code "${cleanCoupon}" is invalid` },
+          { status: 400 }
+        );
+      }
+
+      if (coupon.restaurantId !== restaurant.id) {
+        return NextResponse.json(
+          { error: "This coupon belongs to another restaurant" },
+          { status: 400 }
+        );
+      }
+
+      if (coupon.status === "REDEEMED") {
+        return NextResponse.json(
+          { error: "This coupon code has already been redeemed" },
+          { status: 400 }
+        );
+      }
+
+      const isExpired = new Date(coupon.expiresAt) < new Date();
+      if (isExpired || coupon.status === "EXPIRED") {
+        return NextResponse.json(
+          { error: "This coupon code has expired" },
+          { status: 400 }
+        );
+      }
+
+      const minBill = restaurant.reviewSettings?.minBill || 0;
+      if (calculatedTotal < minBill) {
+        return NextResponse.json(
+          {
+            error: `Minimum bill of ₹${minBill} is required to use this coupon. Current subtotal is ₹${calculatedTotal}.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      // Calculate discount
+      const rule = coupon.rewardRule;
+      if (rule.type === "PERCENT") {
+        discountAmount = Math.round(((calculatedTotal * rule.value) / 100) * 100) / 100;
+      } else if (rule.type === "FLAT") {
+        discountAmount = Math.min(calculatedTotal, rule.value);
+      } else if (rule.type === "FREE_ITEM") {
+        discountAmount = Math.min(calculatedTotal, rule.value);
+      }
+
+      appliedCouponId = coupon.id;
+      appliedCouponCode = coupon.code;
+    }
+
+    const finalTotal = Math.max(0, calculatedTotal - discountAmount);
+
+    // Create Order with Prisma Transaction
+    const newOrder = await prisma.$transaction(
+      async (tx) => {
+        // If coupon applied, mark it as REDEEMED atomically
+        if (appliedCouponId) {
+          await tx.coupon.update({
+            where: { id: appliedCouponId },
+            data: {
+              status: "REDEEMED",
+              redeemedAt: new Date(),
+              billAmount: calculatedTotal,
+              discountApplied: discountAmount,
+            },
+          });
+        }
+
+        const order = await tx.order.create({
+          data: {
+            restaurantId: restaurant.id,
+            tableNumber: tableNumber || null,
+            customerName: customerName || "Dine-in Guest",
+            phone: phone || null,
+            notes: notes || null,
+            subtotal: calculatedTotal,
+            discount: discountAmount,
+            couponCode: appliedCouponCode,
+            total: finalTotal,
+            status: "NEW",
+            paymentMode: paymentMode || "PAY_AT_COUNTER",
+            paymentStatus: paymentMode === "UPI" && utrReference ? "PAID" : "PENDING",
+            items: {
+              create: orderItemsData,
+            },
+          },
+          include: {
+            items: true,
+          },
+        });
+        return order;
+      },
+      {
+        maxWait: 5000,
+        timeout: 15000,
+      }
+    );
 
     return NextResponse.json({
       success: true,
       orderId: newOrder.id,
+      subtotal: newOrder.subtotal,
+      discount: newOrder.discount,
+      couponCode: newOrder.couponCode,
       total: newOrder.total,
+      paymentMode: newOrder.paymentMode,
+      paymentStatus: newOrder.paymentStatus,
       message: "Order placed successfully! Sent to kitchen.",
     });
   } catch (error) {
     console.error("Order creation error:", error);
-    return NextResponse.json({ error: "Failed to place order" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : "Failed to place order";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
