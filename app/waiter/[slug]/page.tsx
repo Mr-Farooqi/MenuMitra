@@ -227,7 +227,7 @@ export default function WaiterMobileStationPage() {
     }
   }, [token]);
 
-  // Serve Order
+  // Serve Order (Only allowed after payment is PAID)
   const handleServe = async (orderId: string) => {
     if (!token) return;
     setActionLoading(orderId);
@@ -240,7 +240,10 @@ export default function WaiterMobileStationPage() {
         },
         body: JSON.stringify({ action: "SERVE", orderId }),
       });
-      if (res.ok) {
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Order cannot be served: Payment is required first!");
+      } else {
         confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
         await fetchOrders();
       }
@@ -700,17 +703,37 @@ export default function WaiterMobileStationPage() {
 
                 {/* Action Buttons for Waiter */}
                 <div className="space-y-2 pt-1">
-                  {/* Mark as Served */}
+                  {/* Mark as Served - Gated by Payment */}
                   {!isCompleted && (
-                    <Button
-                      size="sm"
-                      onClick={() => handleServe(order.id)}
-                      isLoading={actionLoading === order.id}
-                      className="w-full py-3 bg-stone-900 hover:bg-black text-white text-xs font-black rounded-xl shadow-sm flex items-center justify-center gap-1.5"
-                    >
-                      <Check className="w-4 h-4 text-emerald-400" />
-                      <span>Mark as Served to Table ✓</span>
-                    </Button>
+                    !isPaid ? (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            alert(
+                              `⚠️ Payment Pending!\n\nPlease collect payment (Cash or UPI) from Table ${order.tableNumber || "Order"} before marking as Served.`
+                            );
+                          }}
+                          className="w-full py-3 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition"
+                        >
+                          <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>Payment Required to Serve</span>
+                        </button>
+                        <p className="text-[10px] text-amber-700 text-center font-medium">
+                          Collect Cash or UPI below to unlock "Mark as Served"
+                        </p>
+                      </div>
+                    ) : (
+                      <Button
+                        size="sm"
+                        onClick={() => handleServe(order.id)}
+                        isLoading={actionLoading === order.id}
+                        className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-md flex items-center justify-center gap-1.5 animate-in fade-in"
+                      >
+                        <Check className="w-4 h-4 text-white" />
+                        <span>Payment Done ✓ Mark as Served</span>
+                      </Button>
+                    )
                   )}
 
                   {/* Payment Actions */}

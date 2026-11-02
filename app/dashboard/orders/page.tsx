@@ -140,13 +140,16 @@ export default function KitchenKanbanPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderId, status: newStatus }),
       });
-      if (res.ok) {
-        setOrders((prev) =>
-          prev.map((o) => (o.id === orderId ? { ...o, status: newStatus as Order["status"] } : o))
-        );
-        if (selectedOrder?.id === orderId) {
-          setSelectedOrder((prev) => (prev ? { ...prev, status: newStatus as Order["status"] } : null));
-        }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to update order status");
+        return;
+      }
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, status: newStatus as Order["status"] } : o))
+      );
+      if (selectedOrder?.id === orderId) {
+        setSelectedOrder((prev) => (prev ? { ...prev, status: newStatus as Order["status"] } : null));
       }
     } catch (err) {
       console.error("Status update error", err);

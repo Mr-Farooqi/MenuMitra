@@ -284,9 +284,9 @@ export async function PUT(req: NextRequest) {
   if (gateError) return gateError;
 
   try {
-    const { orderId, status } = await req.json();
-    if (!orderId || !status) {
-      return NextResponse.json({ error: "orderId and status are required" }, { status: 400 });
+    const { orderId, status, paymentStatus, paymentMode } = await req.json();
+    if (!orderId) {
+      return NextResponse.json({ error: "orderId is required" }, { status: 400 });
     }
 
     // Ownership check
@@ -297,9 +297,30 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Order not found or unauthorized" }, { status: 404 });
     }
 
+    // Business rule: If completing/serving order, payment must be PAID
+    const targetStatus = status || existing.status;
+    const targetPaymentStatus =
+      paymentStatus !== undefined ? paymentStatus : existing.paymentStatus;
+
+    if (targetStatus === "COMPLETED" && targetPaymentStatus !== "PAID") {
+      return NextResponse.json(
+        {
+          error:
+            "Payment is pending! Please collect Cash or UPI payment before marking order as Completed / Served.",
+          code: "PAYMENT_REQUIRED",
+        },
+        { status: 400 }
+      );
+    }
+
+    const updateData: Record<string, unknown> = {};
+    if (status) updateData.status = status;
+    if (paymentStatus) updateData.paymentStatus = paymentStatus;
+    if (paymentMode) updateData.paymentMode = paymentMode;
+
     const updated = await prisma.order.update({
       where: { id: orderId },
-      data: { status },
+      data: updateData,
       include: { items: true },
     });
 

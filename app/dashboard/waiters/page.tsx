@@ -24,6 +24,7 @@ import {
   X,
   Sparkles,
   UtensilsCrossed,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatINR, formatDate } from "@/lib/utils";
@@ -158,7 +159,7 @@ export default function WaiterStationDashboardPage() {
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  // Serve Order
+  // Serve Order (Only allowed after payment is PAID)
   const handleServeOrder = async (orderId: string) => {
     setActionLoading(orderId);
     try {
@@ -167,7 +168,10 @@ export default function WaiterStationDashboardPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "SERVE", orderId }),
       });
-      if (res.ok) {
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Order cannot be served: Payment is required first!");
+      } else {
         confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
         await loadOrders();
       }
@@ -611,17 +615,35 @@ export default function WaiterStationDashboardPage() {
 
                   {/* Floor Operations Action Buttons */}
                   <div className="space-y-2">
-                    {/* Serve Button */}
+                    {/* Serve Button - Gated by Payment */}
                     {!isCompleted && (
-                      <Button
-                        size="sm"
-                        onClick={() => handleServeOrder(order.id)}
-                        isLoading={actionLoading === order.id}
-                        className="w-full text-xs font-black bg-stone-900 hover:bg-black text-white shadow-sm flex items-center justify-center gap-1.5 py-2.5 rounded-xl"
-                      >
-                        <Check className="w-4 h-4 text-emerald-400" />
-                        <span>Mark Order as Served ✓</span>
-                      </Button>
+                      !isPaid ? (
+                        <div className="space-y-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              alert(`⚠️ Payment Required!\n\nPlease collect payment (Cash or UPI) from Table ${order.tableNumber || "Order"} before serving.`);
+                            }}
+                            className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition cursor-pointer"
+                          >
+                            <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <span>Payment Required to Serve</span>
+                          </button>
+                          <p className="text-[10px] text-amber-700 text-center font-medium">
+                            Collect Cash or UPI below to unlock "Mark as Served"
+                          </p>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={() => handleServeOrder(order.id)}
+                          isLoading={actionLoading === order.id}
+                          className="w-full text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-md flex items-center justify-center gap-1.5 py-2.5 rounded-xl animate-in fade-in"
+                        >
+                          <Check className="w-4 h-4 text-white" />
+                          <span>Payment Done ✓ Mark Order as Served</span>
+                        </Button>
+                      )
                     )}
 
                     {/* Payment & Coupon Buttons */}

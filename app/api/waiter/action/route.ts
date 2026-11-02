@@ -39,6 +39,17 @@ export async function POST(req: NextRequest) {
 
     // 1. ACTION: SERVE ORDER
     if (action === "SERVE") {
+      // Business rule: Order can ONLY be marked as served after payment is completed (PAID)
+      if (order.paymentStatus !== "PAID") {
+        return NextResponse.json(
+          {
+            error: `Payment is still pending for Table ${order.tableNumber || "Order"}. Please collect payment (Cash or UPI) before marking this order as Served.`,
+            code: "PAYMENT_REQUIRED",
+          },
+          { status: 400 }
+        );
+      }
+
       const updated = await prisma.order.update({
         where: { id: orderId },
         data: { status: "COMPLETED" },
