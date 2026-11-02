@@ -799,338 +799,381 @@ function CustomerMenuContent() {
             aria-hidden="true"
           />
 
-          <div className="relative w-full max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-soft-lg border border-stone-200 overflow-hidden z-10 max-h-[90vh] flex flex-col">
-            {/* Drawer Header */}
-            <div className="p-4 border-b border-stone-100 flex items-center justify-between">
+          <div className="relative w-full max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-stone-200 overflow-hidden z-10 max-h-[92vh] sm:max-h-[88vh] flex flex-col">
+            {/* Drawer Header (Fixed at top) */}
+            <div className="px-4 py-3.5 sm:px-5 border-b border-stone-100 flex items-center justify-between shrink-0 bg-white">
               <div>
                 <h3 className="text-base font-black text-stone-900">Your Table Order</h3>
-                <p className="text-xs text-stone-500">Sitting at Table {orderTable}</p>
+                <p className="text-xs text-stone-500 font-medium">Sitting at Table {orderTable} &bull; {cartItemCount} item{cartItemCount !== 1 ? "s" : ""}</p>
               </div>
               <button
+                type="button"
                 onClick={() => setCartDrawerOpen(false)}
-                className="p-1 rounded-lg text-stone-400 hover:text-stone-700"
+                className="p-1.5 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Cart Items List */}
-            <div className="p-4 overflow-y-auto space-y-3 flex-1 divide-y divide-stone-100">
-              {cart.map((entry) => (
-                <div key={entry.item.id} className="pt-2 flex items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      {entry.item.isVeg ? (
-                        <span className="veg-badge" />
-                      ) : (
-                        <span className="non-veg-badge" />
-                      )}
-                      <p className="text-xs font-bold text-stone-900 truncate">
-                        {entry.item.name}
-                      </p>
+            {/* Form wrapping Scrollable Body + Sticky Footer */}
+            <form onSubmit={handlePlaceOrder} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              {/* Scrollable Body */}
+              <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-5 space-y-4 overscroll-contain bg-stone-50/50">
+                {/* Cart Items Card */}
+                <div className="bg-white rounded-2xl p-3.5 border border-stone-200/90 shadow-2xs space-y-2.5">
+                  <div className="flex items-center justify-between border-b border-stone-100 pb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
+                      Selected Dishes ({cartItemCount})
+                    </span>
+                    <span className="text-xs font-black text-stone-900">
+                      {formatINR(cartTotal)}
+                    </span>
+                  </div>
+
+                  <div className="divide-y divide-stone-100">
+                    {cart.map((entry) => (
+                      <div key={entry.item.id} className="py-2.5 flex items-center justify-between gap-3 first:pt-1 last:pb-1">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            {entry.item.isVeg ? (
+                              <span className="veg-badge shrink-0" />
+                            ) : (
+                              <span className="non-veg-badge shrink-0" />
+                            )}
+                            <p className="text-xs font-bold text-stone-900 truncate">
+                              {entry.item.name}
+                            </p>
+                          </div>
+                          <p className="text-[11px] text-stone-500 mt-0.5 font-medium">
+                            {formatINR(entry.item.price)} &times; {entry.quantity} = <span className="font-bold text-stone-800">{formatINR(entry.item.price * entry.quantity)}</span>
+                          </p>
+                        </div>
+
+                        <div className="flex items-center bg-stone-100 rounded-xl px-2 py-1 font-bold text-xs gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => updateCartQuantity(entry.item.id, -1)}
+                            className="w-5 h-5 flex items-center justify-center text-stone-700 hover:text-red-600 transition"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <span className="w-4 text-center font-black">{entry.quantity}</span>
+                          <button
+                            type="button"
+                            onClick={() => updateCartQuantity(entry.item.id, 1)}
+                            className="w-5 h-5 flex items-center justify-center text-stone-700 hover:text-brand-600 transition"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Customer Details */}
+                <div className="bg-white rounded-2xl p-3.5 border border-stone-200/90 shadow-2xs space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-500 mb-1">
+                        Your Name *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)}
+                        placeholder="e.g. Rahul Sharma"
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-stone-300 bg-stone-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                      />
                     </div>
-                    <p className="text-xs text-stone-500 mt-0.5 font-semibold">
-                      {formatINR(entry.item.price * entry.quantity)}
-                    </p>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-500 mb-1">
+                        Phone (Optional)
+                      </label>
+                      <input
+                        type="tel"
+                        value={customerPhone}
+                        onChange={(e) => setCustomerPhone(e.target.value)}
+                        placeholder="+91 98765 43210"
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-stone-300 bg-stone-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                      />
+                    </div>
                   </div>
 
-                  <div className="flex items-center bg-stone-100 rounded-xl px-2 py-1 font-bold text-xs gap-2">
-                    <button
-                      onClick={() => updateCartQuantity(entry.item.id, -1)}
-                      className="w-5 h-5 flex items-center justify-center text-stone-700 hover:text-red-600"
-                    >
-                      <Minus className="w-3 h-3" />
-                    </button>
-                    <span className="w-4 text-center">{entry.quantity}</span>
-                    <button
-                      onClick={() => updateCartQuantity(entry.item.id, 1)}
-                      className="w-5 h-5 flex items-center justify-center text-stone-700 hover:text-brand-600"
-                    >
-                      <Plus className="w-3 h-3" />
-                    </button>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-500 mb-1">
+                      Special Cooking Notes
+                    </label>
+                    <input
+                      type="text"
+                      value={orderNotes}
+                      onChange={(e) => setOrderNotes(e.target.value)}
+                      placeholder="e.g. Less spicy, extra onions, no coriander"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-stone-300 bg-stone-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    />
                   </div>
                 </div>
-              ))}
-            </div>
 
-            {/* Guest Form & Submit */}
-            <form onSubmit={handlePlaceOrder} className="p-4 bg-stone-50 border-t border-stone-200 space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-500 mb-1">
-                    Your Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    placeholder="Guest name"
-                    className="w-full px-3 py-1.5 text-xs rounded-xl border border-stone-300 bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-500 mb-1">
-                    Phone (Optional)
-                  </label>
-                  <input
-                    type="tel"
-                    value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
-                    placeholder="+91..."
-                    className="w-full px-3 py-1.5 text-xs rounded-xl border border-stone-300 bg-white"
-                  />
-                </div>
-              </div>
+                {/* COUPON VOUCHER (Scratch Card Reward Code) */}
+                <div className="p-3.5 bg-amber-50/80 rounded-2xl border border-amber-200 shadow-2xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                      <Gift className="w-3.5 h-3.5 text-amber-600" /> Have a Scratch Card Coupon?
+                    </span>
+                    {appliedCoupon && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveCoupon}
+                        className="text-[11px] text-red-600 font-bold hover:underline"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
 
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-500 mb-1">
-                  Special Cooking Notes
-                </label>
-                <input
-                  type="text"
-                  value={orderNotes}
-                  onChange={(e) => setOrderNotes(e.target.value)}
-                  placeholder="e.g. Less spicy, extra onions, no coriander"
-                  className="w-full px-3 py-1.5 text-xs rounded-xl border border-stone-300 bg-white"
-                />
-              </div>
+                  {!appliedCoupon ? (
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="ENTER COUPON (E.G. MM-REW-XYZ)"
+                        value={couponInput}
+                        onChange={(e) => {
+                          setCouponInput(e.target.value.toUpperCase());
+                          setCouponError(null);
+                        }}
+                        className="flex-1 px-3 py-2 text-xs rounded-xl border border-amber-300 font-mono uppercase bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={validatingCoupon || !couponInput.trim()}
+                        onClick={handleApplyCoupon}
+                        className="shrink-0 text-xs h-9 px-3.5 font-bold border-amber-400 text-amber-900 bg-amber-100 hover:bg-amber-200"
+                      >
+                        {validatingCoupon ? "Checking..." : "Apply"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between bg-white border border-emerald-300 rounded-xl px-3 py-2 text-xs text-emerald-800 shadow-2xs">
+                      <span className="font-bold flex items-center gap-1.5">
+                        <Check className="w-4 h-4 text-emerald-600" />
+                        {appliedCoupon.label} ({appliedCoupon.code})
+                      </span>
+                      <span className="font-black text-emerald-700">
+                        -{formatINR(appliedCoupon.discountAmount)}
+                      </span>
+                    </div>
+                  )}
 
-              {/* COUPON VOUCHER (Scratch Card Reward Code) */}
-              <div className="p-3 bg-amber-50/70 rounded-2xl border border-amber-200/80 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
-                    <Gift className="w-3.5 h-3.5 text-amber-600" /> Have a Scratch Card Coupon?
-                  </span>
-                  {appliedCoupon && (
-                    <button
-                      type="button"
-                      onClick={handleRemoveCoupon}
-                      className="text-[11px] text-red-600 font-bold hover:underline"
-                    >
-                      Remove
-                    </button>
+                  {couponError && (
+                    <p className="text-[11px] text-red-600 font-semibold">{couponError}</p>
+                  )}
+                  {couponMessage && !appliedCoupon && (
+                    <p className="text-[11px] text-emerald-700 font-semibold">{couponMessage}</p>
                   )}
                 </div>
 
-                {!appliedCoupon ? (
-                  <div className="flex gap-1.5">
-                    <input
-                      type="text"
-                      placeholder="Enter Coupon (e.g. MM-REW-XYZ)"
-                      value={couponInput}
-                      onChange={(e) => {
-                        setCouponInput(e.target.value.toUpperCase());
-                        setCouponError(null);
-                      }}
-                      className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-amber-300 font-mono uppercase bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={validatingCoupon || !couponInput.trim()}
-                      onClick={handleApplyCoupon}
-                      className="shrink-0 text-xs h-8 px-3 font-bold border-amber-400 text-amber-900 bg-amber-100 hover:bg-amber-200"
+                {/* PAYMENT OPTION SELECTOR */}
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-500">
+                    Select Payment Option *
+                  </label>
+
+                  <div className="space-y-1.5">
+                    {/* Option 1: Pay at Counter */}
+                    <label
+                      className={`flex items-start gap-2.5 p-3 rounded-2xl border cursor-pointer transition-all ${
+                        paymentMode === "PAY_AT_COUNTER"
+                          ? "bg-brand-50/70 border-brand-500 ring-1 ring-brand-500 shadow-sm"
+                          : "bg-white border-stone-200 hover:bg-stone-50"
+                      }`}
                     >
-                      {validatingCoupon ? "Checking..." : "Apply"}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-xs text-emerald-800">
-                    <span className="font-bold flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      {appliedCoupon.label} ({appliedCoupon.code})
-                    </span>
-                    <span className="font-black text-emerald-700">
-                      -{formatINR(appliedCoupon.discountAmount)}
-                    </span>
-                  </div>
-                )}
-
-                {couponError && (
-                  <p className="text-[11px] text-red-600 font-semibold">{couponError}</p>
-                )}
-                {couponMessage && !appliedCoupon && (
-                  <p className="text-[11px] text-emerald-700 font-semibold">{couponMessage}</p>
-                )}
-              </div>
-
-              {/* PAYMENT OPTION SELECTOR */}
-              <div className="space-y-2 pt-1">
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-500">
-                  Select Payment Option *
-                </label>
-
-                <div className="space-y-1.5">
-                  {/* Option 1: Pay at Counter */}
-                  <label
-                    className={`flex items-start gap-2.5 p-2.5 rounded-2xl border cursor-pointer transition-all ${
-                      paymentMode === "PAY_AT_COUNTER"
-                        ? "bg-brand-50/70 border-brand-500 ring-1 ring-brand-500 shadow-sm"
-                        : "bg-white border-stone-200 hover:bg-stone-50"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="paymentMode"
-                      value="PAY_AT_COUNTER"
-                      checked={paymentMode === "PAY_AT_COUNTER"}
-                      onChange={() => setPaymentMode("PAY_AT_COUNTER")}
-                      className="mt-0.5 text-brand-600 focus:ring-brand-500"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <CreditCard className="w-3.5 h-3.5 text-stone-700" />
-                        <span className="text-xs font-bold text-stone-900">
-                          Pay at Counter (Cash / Card after meal)
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-stone-500 mt-0.5">
-                        Enjoy your meal, pay at counter when leaving.
-                      </p>
-                    </div>
-                  </label>
-
-                  {/* Option 2: Pay via UPI QR */}
-                  <label
-                    className={`flex items-start gap-2.5 p-2.5 rounded-2xl border cursor-pointer transition-all ${
-                      paymentMode === "UPI"
-                        ? "bg-brand-50/70 border-brand-500 ring-1 ring-brand-500 shadow-sm"
-                        : "bg-white border-stone-200 hover:bg-stone-50"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="paymentMode"
-                      value="UPI"
-                      checked={paymentMode === "UPI"}
-                      onChange={() => setPaymentMode("UPI")}
-                      className="mt-0.5 text-brand-600 focus:ring-brand-500"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <QrCode className="w-3.5 h-3.5 text-brand-600" />
-                        <span className="text-xs font-bold text-stone-900">
-                          Pay via UPI QR (GPay, PhonePe, Paytm)
-                        </span>
-                        <span className="px-1.5 py-0.2 text-[9px] font-black bg-emerald-100 text-emerald-800 rounded">
-                          Instant
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-stone-500 mt-0.5">
-                        Scan UPI QR code directly on your mobile screen.
-                      </p>
-                    </div>
-                  </label>
-
-                  {/* Option 3: Cash on Table */}
-                  <label
-                    className={`flex items-start gap-2.5 p-2.5 rounded-2xl border cursor-pointer transition-all ${
-                      paymentMode === "CASH"
-                        ? "bg-brand-50/70 border-brand-500 ring-1 ring-brand-500 shadow-sm"
-                        : "bg-white border-stone-200 hover:bg-stone-50"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="paymentMode"
-                      value="CASH"
-                      checked={paymentMode === "CASH"}
-                      onChange={() => setPaymentMode("CASH")}
-                      className="mt-0.5 text-brand-600 focus:ring-brand-500"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <Receipt className="w-3.5 h-3.5 text-stone-700" />
-                        <span className="text-xs font-bold text-stone-900">
-                          Cash on Table
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-stone-500 mt-0.5">
-                        Pay cash directly to server at Table {orderTable}.
-                      </p>
-                    </div>
-                  </label>
-                </div>
-
-                {/* If UPI is selected, display Dynamic QR and UPI links */}
-                {paymentMode === "UPI" && (
-                  <div className="mt-2 p-3 bg-white rounded-2xl border border-brand-200 shadow-sm text-center space-y-2.5 animate-in fade-in">
-                    <div className="flex items-center justify-center gap-1 text-xs font-bold text-stone-800">
-                      <QrCode className="w-3.5 h-3.5 text-brand-600" />
-                      Scan to Pay {formatINR(finalOrderAmount)}
-                    </div>
-
-                    {qrDataUrl ? (
-                      <img
-                        src={qrDataUrl}
-                        alt="UPI QR Code"
-                        className="w-36 h-36 mx-auto rounded-xl border border-stone-200 shadow-sm"
-                      />
-                    ) : (
-                      <div className="w-36 h-36 mx-auto rounded-xl bg-stone-100 flex items-center justify-center text-xs text-stone-400">
-                        Generating QR...
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-center gap-2">
-                      <a
-                        href={upiUri}
-                        className="inline-flex items-center justify-center px-3 py-1.5 rounded-xl bg-brand-500 text-white text-xs font-bold hover:bg-brand-600 transition shadow-sm"
-                      >
-                        Open in UPI App
-                      </a>
-                      <button
-                        type="button"
-                        onClick={handleCopyUpi}
-                        className="px-2.5 py-1.5 rounded-xl bg-stone-100 text-stone-700 text-xs font-semibold hover:bg-stone-200 transition"
-                      >
-                        {copiedUpi ? "Copied ✓" : "Copy UPI"}
-                      </button>
-                    </div>
-
-                    <div>
                       <input
-                        type="text"
-                        maxLength={12}
-                        value={utrReference}
-                        onChange={(e) => setUtrReference(e.target.value)}
-                        placeholder="Optional: Enter 12-digit UPI UTR"
-                        className="w-full text-center px-3 py-1.5 text-xs font-mono rounded-xl border border-stone-300"
+                        type="radio"
+                        name="paymentMode"
+                        value="PAY_AT_COUNTER"
+                        checked={paymentMode === "PAY_AT_COUNTER"}
+                        onChange={() => setPaymentMode("PAY_AT_COUNTER")}
+                        className="mt-0.5 text-brand-600 focus:ring-brand-500"
                       />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <CreditCard className="w-3.5 h-3.5 text-stone-700" />
+                          <span className="text-xs font-bold text-stone-900">
+                            Pay at Counter (Cash / Card after meal)
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-stone-500 mt-0.5">
+                          Enjoy your meal, pay at counter when leaving.
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* Option 2: Pay via UPI QR */}
+                    <label
+                      className={`flex items-start gap-2.5 p-3 rounded-2xl border cursor-pointer transition-all ${
+                        paymentMode === "UPI"
+                          ? "bg-brand-50/70 border-brand-500 ring-1 ring-brand-500 shadow-sm"
+                          : "bg-white border-stone-200 hover:bg-stone-50"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="paymentMode"
+                        value="UPI"
+                        checked={paymentMode === "UPI"}
+                        onChange={() => setPaymentMode("UPI")}
+                        className="mt-0.5 text-brand-600 focus:ring-brand-500"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <QrCode className="w-3.5 h-3.5 text-brand-600" />
+                          <span className="text-xs font-bold text-stone-900">
+                            Pay via UPI QR (GPay, PhonePe, Paytm)
+                          </span>
+                          <span className="px-1.5 py-0.2 text-[9px] font-black bg-emerald-100 text-emerald-800 rounded">
+                            Instant
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-stone-500 mt-0.5">
+                          Scan UPI QR code directly on your mobile screen.
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* Option 3: Cash on Table */}
+                    <label
+                      className={`flex items-start gap-2.5 p-3 rounded-2xl border cursor-pointer transition-all ${
+                        paymentMode === "CASH"
+                          ? "bg-brand-50/70 border-brand-500 ring-1 ring-brand-500 shadow-sm"
+                          : "bg-white border-stone-200 hover:bg-stone-50"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="paymentMode"
+                        value="CASH"
+                        checked={paymentMode === "CASH"}
+                        onChange={() => setPaymentMode("CASH")}
+                        className="mt-0.5 text-brand-600 focus:ring-brand-500"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <Receipt className="w-3.5 h-3.5 text-stone-700" />
+                          <span className="text-xs font-bold text-stone-900">
+                            Cash on Table
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-stone-500 mt-0.5">
+                          Pay cash directly to server at Table {orderTable}.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* If UPI is selected, display Dynamic QR and UPI links */}
+                  {paymentMode === "UPI" && (
+                    <div className="mt-2.5 p-3.5 bg-white rounded-2xl border border-brand-200 shadow-sm text-center space-y-3 animate-in fade-in">
+                      <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-stone-800">
+                        <QrCode className="w-4 h-4 text-brand-600" />
+                        <span>Scan to Pay {formatINR(finalOrderAmount)}</span>
+                      </div>
+
+                      {qrDataUrl ? (
+                        <div className="inline-block p-2 bg-white rounded-2xl border border-stone-200 shadow-2xs">
+                          <img
+                            src={qrDataUrl}
+                            alt="UPI QR Code"
+                            className="w-36 h-36 mx-auto rounded-xl"
+                          />
+                        </div>
+                      ) : (
+                        <div className="w-36 h-36 mx-auto rounded-xl bg-stone-100 flex items-center justify-center text-xs text-stone-400">
+                          Generating QR...
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        <a
+                          href={upiUri}
+                          className="inline-flex items-center justify-center px-3.5 py-1.5 rounded-xl bg-brand-500 text-white text-xs font-bold hover:bg-brand-600 transition shadow-sm"
+                        >
+                          Open in UPI App
+                        </a>
+                        <button
+                          type="button"
+                          onClick={handleCopyUpi}
+                          className="px-3 py-1.5 rounded-xl bg-stone-100 text-stone-700 text-xs font-semibold hover:bg-stone-200 transition"
+                        >
+                          {copiedUpi ? "Copied ✓" : "Copy UPI"}
+                        </button>
+                      </div>
+
+                      <div>
+                        <input
+                          type="text"
+                          maxLength={12}
+                          value={utrReference}
+                          onChange={(e) => setUtrReference(e.target.value)}
+                          placeholder="Optional: Enter 12-digit UPI UTR"
+                          className="w-full text-center px-3 py-2 text-xs font-mono rounded-xl border border-stone-300 bg-stone-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                        />
+                      </div>
                     </div>
+                  )}
+                </div>
+
+                {/* Price Breakdown */}
+                <div className="p-3.5 bg-white rounded-2xl border border-stone-200/90 shadow-2xs space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between text-stone-600">
+                    <span>Items Subtotal:</span>
+                    <span className="font-bold text-stone-900">{formatINR(cartTotal)}</span>
                   </div>
-                )}
+                  {appliedCoupon && (
+                    <div className="flex items-center justify-between text-emerald-700 font-bold">
+                      <span className="flex items-center gap-1">
+                        <Gift className="w-3.5 h-3.5" /> Coupon Discount ({appliedCoupon.code}):
+                      </span>
+                      <span>-{formatINR(appliedCoupon.discountAmount)}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-xs font-black text-stone-900 pt-1.5 border-t border-stone-100">
+                    <span>Total Amount:</span>
+                    <span className="text-sm text-brand-600 font-black">
+                      {formatINR(finalOrderAmount)}
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              {/* Price Breakdown */}
-              <div className="pt-2 border-t border-stone-200 space-y-1 text-xs">
-                <div className="flex items-center justify-between text-stone-600">
-                  <span>Items Subtotal:</span>
-                  <span className="font-bold">{formatINR(cartTotal)}</span>
-                </div>
-                {appliedCoupon && (
-                  <div className="flex items-center justify-between text-emerald-700 font-bold">
-                    <span>Coupon Discount ({appliedCoupon.code}):</span>
-                    <span>-{formatINR(appliedCoupon.discountAmount)}</span>
+              {/* Sticky Drawer Footer (Always visible & pinned) */}
+              <div className="p-4 bg-white border-t border-stone-200 shrink-0 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] z-10">
+                <div className="flex items-center justify-between mb-2.5 px-0.5">
+                  <div>
+                    <span className="text-[10px] uppercase tracking-wider text-stone-500 font-bold block">
+                      To Pay &bull; {paymentMode === "UPI" ? "UPI QR" : paymentMode === "CASH" ? "Cash" : "At Counter"}
+                    </span>
+                    <span className="text-base font-black text-stone-900">{formatINR(finalOrderAmount)}</span>
                   </div>
-                )}
-                <div className="flex items-center justify-between text-sm font-black text-stone-900 pt-1 border-t border-stone-100">
-                  <span>Total to Pay:</span>
-                  <span className="text-base text-brand-600 font-black">
-                    {formatINR(finalOrderAmount)}
-                  </span>
+                  {appliedCoupon && (
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                      Saved {formatINR(appliedCoupon.discountAmount)} 🎉
+                    </span>
+                  )}
                 </div>
-              </div>
 
-              <Button
-                type="submit"
-                isLoading={submittingOrder}
-                className="w-full py-3 text-sm font-black shadow-lg shadow-brand-500/25"
-              >
-                Confirm & Place Order ({formatINR(finalOrderAmount)}) &rarr;
-              </Button>
+                <Button
+                  type="submit"
+                  disabled={cart.length === 0}
+                  isLoading={submittingOrder}
+                  className="w-full py-3.5 text-sm font-black shadow-lg shadow-brand-500/25 rounded-2xl bg-brand-500 hover:bg-brand-600 text-white flex items-center justify-center gap-2"
+                >
+                  <span>Confirm & Place Order ({formatINR(finalOrderAmount)})</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </div>
             </form>
           </div>
         </div>
