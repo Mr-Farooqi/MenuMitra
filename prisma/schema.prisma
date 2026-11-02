@@ -53,6 +53,8 @@ model Restaurant {
   timings          String?  // e.g. "11:00 AM - 11:00 PM"
   googleReviewLink String?
   status           String   @default("ACTIVE") // PENDING, ACTIVE, SUSPENDED
+  waiterPin        String?  @default("1234")
+  waiterPinUpdatedAt DateTime? @default(now())
   packageId        String
   package          Package  @relation(fields: [packageId], references: [id])
   createdAt        DateTime @default(now())

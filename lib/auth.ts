@@ -55,3 +55,37 @@ export async function getSessionFromRequest(req: NextRequest): Promise<SessionPa
   if (!token) return null;
   return verifySessionToken(token);
 }
+
+export const WAITER_COOKIE_NAME = "menumitra_waiter_token";
+
+export async function createWaiterToken(payload: {
+  restaurantId: string;
+  restaurantSlug: string;
+  pin: string;
+}): Promise<string> {
+  return new SignJWT({ ...payload, role: "WAITER" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("24h")
+    .sign(secretKey);
+}
+
+export async function verifyWaiterToken(token: string): Promise<{
+  role: "WAITER";
+  restaurantId: string;
+  restaurantSlug: string;
+  pin: string;
+} | null> {
+  try {
+    const { payload } = await jwtVerify(token, secretKey);
+    if (payload.role !== "WAITER") return null;
+    return payload as unknown as {
+      role: "WAITER";
+      restaurantId: string;
+      restaurantSlug: string;
+      pin: string;
+    };
+  } catch {
+    return null;
+  }
+}

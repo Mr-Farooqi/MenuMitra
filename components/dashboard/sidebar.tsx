@@ -19,6 +19,7 @@ import {
   ExternalLink,
   ChevronRight,
   LogOut,
+  Smartphone,
 } from "lucide-react";
 import { FeatureKey, FEATURE_INFO } from "@/lib/feature-gate";
 import { UpgradeModal } from "@/components/ui/upgrade-modal";
@@ -84,6 +85,13 @@ export function DashboardSidebar({ user, mobileOpen, setMobileOpen }: SidebarPro
       label: "Orders & KOT",
       href: "/dashboard/orders",
       icon: ShoppingBag,
+      feature: "orders" as FeatureKey,
+      planLabel: "Standard+",
+    },
+    {
+      label: "Waiter Station",
+      href: "/dashboard/waiters",
+      icon: Smartphone,
       feature: "orders" as FeatureKey,
       planLabel: "Standard+",
     },
