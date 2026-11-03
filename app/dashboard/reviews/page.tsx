@@ -134,7 +134,7 @@ export default function ReviewsDashboardPage() {
   const [settingsForm, setSettingsForm] = useState({
     popupEnabled: true,
     popupDelaySeconds: 6,
-    autoApprove: true,
+    autoApprove: false,
     cooldownDays: 30,
     minBill: 0,
     googleReviewLink: "",

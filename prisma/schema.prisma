@@ -180,7 +180,7 @@ model ReviewSettings {
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   popupEnabled      Boolean    @default(true)
   popupDelaySeconds Int        @default(6)
-  autoApprove       Boolean    @default(true)
+  autoApprove       Boolean    @default(false)
   cooldownDays      Int        @default(30)
   minBill           Float      @default(0)
   googleReviewLink  String?

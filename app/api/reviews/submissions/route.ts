@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
     }
 
     const settings = restaurant.reviewSettings || {
-      autoApprove: true,
+      autoApprove: false,
       cooldownDays: 30,
     };
 

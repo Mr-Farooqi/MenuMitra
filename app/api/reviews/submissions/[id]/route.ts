@@ -95,7 +95,15 @@ export async function PUT(
         );
       }
 
-      const couponCode = generateCouponCode("MITRA");
+      const rest = await prisma.restaurant.findUnique({
+        where: { id: session.restaurantId! },
+        select: { name: true },
+      });
+      const prefix = (rest?.name || "MITRA")
+        .slice(0, 4)
+        .toUpperCase()
+        .replace(/[^A-Z]/g, "MITRA");
+      const couponCode = generateCouponCode(prefix);
       const expiresAt = new Date(Date.now() + selectedRule.expiryDays * 24 * 60 * 60 * 1000);
 
       const result = await prisma.$transaction(async (tx) => {

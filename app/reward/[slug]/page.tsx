@@ -58,6 +58,20 @@ export default function ReviewRewardPage() {
   const [submissionId, setSubmissionId] = useState<string | null>(null);
   const [rewardCoupon, setRewardCoupon] = useState<ApprovedCoupon | null>(null);
 
+  // Check for any pending review submission in progress on this device
+  useEffect(() => {
+    if (!slug) return;
+    try {
+      const savedSubId = localStorage.getItem(`menumitra_pending_reward_${slug}`);
+      if (savedSubId) {
+        setSubmissionId(savedSubId);
+        setStep("pending");
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [slug]);
+
   // Fetch restaurant details & review link
   useEffect(() => {
     async function loadInfo() {
@@ -133,10 +147,16 @@ export default function ReviewRewardPage() {
 
       if (result.status === "APPROVED" && result.coupon) {
         // Instant approval! Show scratch card
+        try {
+          localStorage.removeItem(`menumitra_pending_reward_${slug}`);
+        } catch {}
         setRewardCoupon(result.coupon);
         setStep("scratched");
       } else {
-        // Pending approval: poll status
+        // Pending approval: save in localStorage & poll status
+        try {
+          localStorage.setItem(`menumitra_pending_reward_${slug}`, result.submissionId);
+        } catch {}
         setStep("pending");
       }
     } catch (err: unknown) {
@@ -156,10 +176,16 @@ export default function ReviewRewardPage() {
         const data = await res.json();
 
         if (data.status === "APPROVED" && data.coupon) {
+          try {
+            localStorage.removeItem(`menumitra_pending_reward_${slug}`);
+          } catch {}
           setRewardCoupon(data.coupon);
           setStep("scratched");
           clearInterval(interval);
         } else if (data.status === "REJECTED") {
+          try {
+            localStorage.removeItem(`menumitra_pending_reward_${slug}`);
+          } catch {}
           setError(data.reason || "Review screenshot was rejected by restaurant staff.");
           setStep("form");
           clearInterval(interval);
@@ -170,7 +196,7 @@ export default function ReviewRewardPage() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [step, submissionId]);
+  }, [step, submissionId, slug]);
 
   if (loadingRestaurant) {
     return (
@@ -369,6 +395,21 @@ export default function ReviewRewardPage() {
             </p>
             <div className="p-3 bg-stone-50 rounded-2xl text-[11px] font-mono text-stone-500">
               Polling live status every 3 seconds...
+            </div>
+            <div className="pt-2 border-t border-stone-100">
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    localStorage.removeItem(`menumitra_pending_reward_${slug}`);
+                  } catch {}
+                  setStep("form");
+                  setSubmissionId(null);
+                }}
+                className="text-xs font-semibold text-stone-400 hover:text-stone-700 underline"
+              >
+                Upload a different screenshot
+              </button>
             </div>
           </div>
         )}
