@@ -73,6 +73,7 @@ flowchart TD
 
 ### 2.1 Technology Breakdown
 * **Framework:** Next.js 14 (App Router, Server Components & Dynamic Route Handlers)
+* **AI & Machine Learning:** Google DeepMind / Google Cloud Gemini 1.5 Flash (`@google/generative-ai`)
 * **Language:** TypeScript 5 (Strict Type Checking with zero `any` leaks)
 * **Styling & UI:** Tailwind CSS, Lucide React Icons, Canvas Confetti
 * **Database & ORM:** PostgreSQL hosted on Neon Serverless Cloud, managed via Prisma ORM 5.22.0
@@ -341,9 +342,41 @@ flowchart TD
 
 ---
 
-## 7. Installation, Setup & Deployment Guide
+## 7. Google DeepMind & Google Cloud AI Integration
 
-### 7.1 Local Environment Setup
+MenuMitra natively incorporates **Google Gemini 1.5 Flash (Google DeepMind)** across 4 key high-impact workflows:
+
+```mermaid
+flowchart LR
+    A["Customer Review Screenshot"] -->|Multimodal Vision| G1["Gemini 1.5 Flash Vision"]
+    G1 -->|Confidence & Fraud Detection| B["AI Verified Review Badge"]
+
+    C["Diner Food Query"] -->|Menu Context| G2["Mitra Chef AI Concierge"]
+    G2 -->|Smart Pairings & Recommendations| D["Add Recommended Dish to Cart"]
+
+    E["Customer Review Text"] -->|Sentiment Analysis| G3["Gemini Review Responder"]
+    G3 -->|Polite Owner Reply| F["1-Click Copy for Google Maps"]
+
+    H["Menu Item Name & Category"] -->|Culinary Prompting| G4["Gemini Menu Copywriter"]
+    G4 -->|Appetizing Descriptions & Tags| I["Enriched Digital Menu"]
+```
+
+1. **Multimodal Review Screenshot Fraud Detection:**
+   - Powered by `gemini-1.5-flash` with vision inputs.
+   - Automatically detects authentic Google Maps review UI, star ratings, reviewer sentiment, and matches restaurant name to protect against fraud screenshots.
+2. **Mitra Chef AI Concierge:**
+   - On `/m/[slug]`, diners can ask for personalized culinary recommendations, flavor pairings, dietary filters, or regional language translation (Hindi / Marathi / Gujarati).
+   - Dynamically recommends items from the restaurant's active menu catalog with direct 1-tap cart additions.
+3. **1-Click AI Review Reply Generator:**
+   - In `/dashboard/reviews`, owners can instantly draft warm, professional, authentic responses to Google Reviews for Google Business Profile SEO.
+4. **AI Menu Item Enhancer:**
+   - In `/dashboard/menu`, owners can click "✨ AI Enhance (DeepMind)" to craft appetizing descriptions and culinary badges for new dishes.
+
+---
+
+## 8. Installation, Setup & Deployment Guide
+
+### 8.1 Local Environment Setup
 1. **Clone the repository:**
    ```bash
    git clone https://github.com/Mr-Farooqi/MenuMitra.git
@@ -362,6 +395,9 @@ flowchart TD
    # Security & Authentication
    JWT_SECRET="your-ultra-secure-random-jwt-secret-string-at-least-32-chars"
 
+   # Google DeepMind / Google Cloud Gemini API
+   GEMINI_API_KEY="your-gemini-api-key-here"
+
    # Node Environment
    NODE_ENV="development"
    ```
@@ -377,7 +413,7 @@ flowchart TD
    * Super Admin Portal: `http://localhost:3000/admin`
    * Owner Dashboard: `http://localhost:3000/dashboard`
 
-### 7.2 Production Build & Verification
+### 8.2 Production Build & Verification
 Always verify clean builds prior to pushing to production:
 ```bash
 # 1. Type Check
@@ -389,7 +425,7 @@ npm run build
 
 ---
 
-## 8. Summary of Key User Roles & Paths
+## 9. Summary of Key User Roles & Paths
 
 | Role | Primary Entry URL | Key Responsibilities | Access Restrictions |
 | :--- | :--- | :--- | :--- |

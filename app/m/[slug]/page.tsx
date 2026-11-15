@@ -27,6 +27,8 @@ import {
   ChefHat,
   Bell,
   CheckCircle2,
+  Bot,
+  Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatINR } from "@/lib/utils";
@@ -131,6 +133,43 @@ function CustomerMenuContent() {
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [copiedUpi, setCopiedUpi] = useState(false);
   const [utrReference, setUtrReference] = useState("");
+
+  // Mitra Chef AI Assistant State (Powered by Google DeepMind / Gemini)
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState<{
+    message: string;
+    recommendedItemIds: string[];
+    chefTip: string;
+  } | null>(null);
+
+  const handleAskChefAi = async (customPrompt?: string) => {
+    const promptToSend = customPrompt || aiQuery;
+    if (!promptToSend.trim() || !slug) return;
+    setAiLoading(true);
+    setAiResult(null);
+    if (customPrompt) setAiQuery(customPrompt);
+    try {
+      const res = await fetch("/api/ai/chef-mitra", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, query: promptToSend }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAiResult({
+          message: data.message,
+          recommendedItemIds: data.recommendedItemIds || [],
+          chefTip: data.chefTip,
+        });
+      }
+    } catch (err) {
+      console.error("Chef AI error:", err);
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   // Poll & Track Active Order from localStorage
   useEffect(() => {
@@ -786,6 +825,190 @@ function CustomerMenuContent() {
               View Order
               <ArrowRight className="w-4 h-4 ml-1.5" />
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* FLOATING MITRA CHEF AI BUTTON (Google DeepMind) */}
+      <button
+        type="button"
+        onClick={() => setAiModalOpen(true)}
+        className="fixed bottom-24 right-4 z-40 bg-gradient-to-r from-indigo-600 via-purple-600 to-amber-600 text-white px-3.5 py-2.5 rounded-full shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2 group border border-white/20 backdrop-blur-md"
+        aria-label="Ask Mitra Chef AI"
+      >
+        <div className="relative">
+          <ChefHat className="w-5 h-5 text-amber-200 animate-bounce" />
+          <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-400 rounded-full animate-ping" />
+        </div>
+        <div className="text-left hidden group-hover:block transition-all">
+          <span className="block text-xs font-black leading-tight">Mitra Chef AI</span>
+          <span className="text-[9px] text-indigo-200 font-medium">DeepMind</span>
+        </div>
+      </button>
+
+      {/* MITRA CHEF AI MODAL (Powered by Google DeepMind / Gemini) */}
+      {aiModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-stone-950/70 backdrop-blur-sm animate-in fade-in">
+          <div
+            className="fixed inset-0"
+            onClick={() => setAiModalOpen(false)}
+            aria-hidden="true"
+          />
+
+          <div className="relative w-full max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-stone-200 overflow-hidden z-10 max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="px-5 py-4 bg-gradient-to-r from-indigo-700 via-purple-700 to-indigo-800 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center border border-white/20">
+                  <Bot className="w-5 h-5 text-amber-300" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-sm font-black tracking-tight">Mitra Chef AI</h3>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-400 text-indigo-950 uppercase tracking-wider">
+                      DeepMind
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-indigo-200">Powered by Google Gemini 1.5 Flash</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAiModalOpen(false)}
+                className="p-1.5 rounded-full text-indigo-200 hover:text-white hover:bg-white/10 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4 max-h-[calc(90vh-140px)] bg-stone-50/50">
+              {/* Quick Prompts */}
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500 block mb-2">
+                  Popular Questions & Pairings
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    "🌶️ Best spicy dishes for dinner",
+                    "🥗 Top vegetarian starters under ₹250",
+                    "👨‍👩‍👧 Best family combo recommendations",
+                    "🇮🇳 मेन्यू हिंदी में समझाइए",
+                  ].map((promptText) => (
+                    <button
+                      key={promptText}
+                      type="button"
+                      onClick={() => handleAskChefAi(promptText)}
+                      disabled={aiLoading}
+                      className="px-2.5 py-1.5 text-xs font-semibold bg-white border border-stone-200 hover:border-indigo-300 hover:bg-indigo-50 text-stone-700 rounded-xl transition text-left shadow-2xs disabled:opacity-50"
+                    >
+                      {promptText}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Input Form */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={aiQuery}
+                  onChange={(e) => setAiQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAskChefAi();
+                    }
+                  }}
+                  placeholder="Ask chef (e.g. what pairs well with Paneer Tikka?)"
+                  className="flex-1 px-3.5 py-2.5 text-xs bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={aiLoading || !aiQuery.trim()}
+                  onClick={() => handleAskChefAi()}
+                  className="px-4 py-2.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm transition disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {aiLoading ? <Clock className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  Ask
+                </button>
+              </div>
+
+              {/* AI Loading State */}
+              {aiLoading && (
+                <div className="bg-white border border-indigo-100 rounded-2xl p-6 text-center space-y-2">
+                  <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto animate-pulse">
+                    <Sparkles className="w-5 h-5 text-indigo-600 animate-spin" />
+                  </div>
+                  <p className="text-xs font-bold text-stone-800">Chef Mitra is analyzing the menu...</p>
+                  <p className="text-[11px] text-stone-500">Curating the best culinary pairings via Gemini AI</p>
+                </div>
+              )}
+
+              {/* AI Response Display */}
+              {aiResult && (
+                <div className="bg-white border border-indigo-200/80 rounded-2xl p-4 shadow-sm space-y-3 animate-in fade-in">
+                  <div className="flex items-start gap-2.5">
+                    <span className="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg shrink-0 mt-0.5">
+                      <Bot className="w-4 h-4" />
+                    </span>
+                    <div className="space-y-1">
+                      <span className="text-xs font-black text-indigo-900 block">Chef's Culinary Advice</span>
+                      <p className="text-xs text-stone-700 leading-relaxed">{aiResult.message}</p>
+                    </div>
+                  </div>
+
+                  {aiResult.chefTip && (
+                    <div className="bg-amber-50/80 border border-amber-200/70 rounded-xl p-2.5 text-xs text-amber-900 flex items-start gap-2">
+                      <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold block text-[11px] text-amber-800">Chef's Secret Tip:</span>
+                        {aiResult.chefTip}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recommended Dish Cards */}
+                  {aiResult.recommendedItemIds && aiResult.recommendedItemIds.length > 0 && (
+                    <div className="pt-2 border-t border-stone-100 space-y-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500 block">
+                        Recommended Dishes from our Menu
+                      </span>
+                      <div className="space-y-2">
+                        {categories
+                          .flatMap((c) => c.items)
+                          .filter((item) => aiResult.recommendedItemIds.includes(item.id))
+                          .map((dish) => (
+                            <div
+                              key={dish.id}
+                              className="flex items-center justify-between p-2.5 bg-stone-50 border border-stone-200/80 rounded-xl hover:border-indigo-300 transition"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                <span className={dish.isVeg ? "veg-badge shrink-0" : "non-veg-badge shrink-0"} />
+                                <div className="min-w-0">
+                                  <h4 className="text-xs font-bold text-stone-900 truncate">{dish.name}</h4>
+                                  <span className="text-xs font-black text-stone-700">{formatINR(dish.price)}</span>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  addToCart(dish);
+                                  alert(`Added ${dish.name} to your order!`);
+                                }}
+                                className="px-3 py-1.5 text-xs font-extrabold text-white bg-brand-500 hover:bg-brand-600 rounded-lg shadow-2xs transition flex items-center gap-1 shrink-0 ml-2"
+                              >
+                                <Plus className="w-3.5 h-3.5" /> Add
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

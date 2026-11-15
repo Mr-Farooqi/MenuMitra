@@ -30,6 +30,11 @@ export async function GET(
     return NextResponse.json({
       status: submission.status,
       reason: submission.reason,
+      aiVerified: submission.aiVerified,
+      aiConfidence: submission.aiConfidence,
+      aiRating: submission.aiRating,
+      aiVerdict: submission.aiVerdict,
+      aiSummary: submission.aiSummary,
       coupon: submission.coupon
         ? {
             code: submission.coupon.code,

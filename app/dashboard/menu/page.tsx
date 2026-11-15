@@ -84,6 +84,7 @@ export default function MenuManagerPage() {
   });
 
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [enhancingAi, setEnhancingAi] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const itemFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -206,6 +207,38 @@ export default function MenuManagerPage() {
       tags: item.tagsList || [],
     });
     setItemModalOpen(true);
+  };
+
+  const handleAiEnhanceItem = async () => {
+    if (!itemForm.name.trim()) {
+      alert("Please enter a dish name first to enhance it with AI");
+      return;
+    }
+    setEnhancingAi(true);
+    try {
+      const selectedCat = categories.find((c) => c.id === itemForm.categoryId)?.name || "Main Course";
+      const res = await fetch("/api/ai/enhance-item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: itemForm.name,
+          categoryName: selectedCat,
+          isVeg: itemForm.isVeg,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setItemForm((prev) => ({
+          ...prev,
+          description: data.description || prev.description,
+          tags: Array.from(new Set([...prev.tags, ...(data.tags || [])])),
+        }));
+      }
+    } catch (err) {
+      console.error("AI Enhance error:", err);
+    } finally {
+      setEnhancingAi(false);
+    }
   };
 
   const handleSaveItem = async (e: React.FormEvent) => {
@@ -824,9 +857,20 @@ export default function MenuManagerPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 mb-1.5">
-              Description / Ingredients
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold uppercase tracking-wider text-stone-700">
+                Description / Ingredients
+              </label>
+              <button
+                type="button"
+                disabled={enhancingAi || !itemForm.name.trim()}
+                onClick={handleAiEnhanceItem}
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-0.5 rounded-lg transition disabled:opacity-50"
+              >
+                <Sparkles className="w-3 h-3 text-indigo-600" />
+                {enhancingAi ? "Generating with Gemini..." : "✨ AI Enhance (DeepMind)"}
+              </button>
+            </div>
             <textarea
               rows={2}
               value={itemForm.description}

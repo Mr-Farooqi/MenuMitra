@@ -216,6 +216,11 @@ model ReviewSubmission {
   imageHash    String     // SHA-256 hash to detect duplicate uploaded screenshots
   status       String     @default("PENDING") // PENDING, APPROVED, REJECTED
   reason       String?
+  aiVerified   Boolean?   @default(false)
+  aiConfidence Float?     // e.g. 96.5%
+  aiRating     Int?       // e.g. 5
+  aiSummary    String?    // Gemini extracted snippet
+  aiVerdict    String?    // "AUTHENTIC_5_STAR", "SUSPICIOUS", "LOW_RATING", "NOT_A_REVIEW"
   coupon       Coupon?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt

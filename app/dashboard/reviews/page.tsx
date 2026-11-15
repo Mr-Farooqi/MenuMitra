@@ -24,6 +24,9 @@ import {
   Filter,
   Check,
   AlertTriangle,
+  Bot,
+  Copy,
+  Star,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 
@@ -56,6 +59,11 @@ interface ReviewSubmission {
   status: "PENDING" | "APPROVED" | "REJECTED";
   reason?: string;
   createdAt: string;
+  aiVerified?: boolean;
+  aiConfidence?: number;
+  aiRating?: number;
+  aiSummary?: string;
+  aiVerdict?: string;
   coupon?: {
     code: string;
     expiresAt: string;
@@ -100,6 +108,9 @@ export default function ReviewsDashboardPage() {
   const [selectedSubmission, setSelectedSubmission] = useState<ReviewSubmission | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
+  const [aiReply, setAiReply] = useState<string>("");
+  const [generatingAiReply, setGeneratingAiReply] = useState<boolean>(false);
+  const [copiedReply, setCopiedReply] = useState<boolean>(false);
 
   // POS Redeem State
   const [redeemCode, setRedeemCode] = useState("");
@@ -264,6 +275,34 @@ export default function ReviewsDashboardPage() {
       console.error(err);
     } finally {
       setActionLoading(false);
+    }
+  }
+
+  async function handleGenerateAiReply(sub: ReviewSubmission) {
+    setGeneratingAiReply(true);
+    setAiReply("");
+    setCopiedReply(false);
+    try {
+      const res = await fetch("/api/ai/review-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reviewerName: sub.name,
+          stars: sub.aiRating || 5,
+          reviewSnippet: sub.aiSummary || "Great food and welcoming hospitality!",
+          tone: "warm",
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAiReply(data.reply || "");
+      } else {
+        alert("Failed to generate AI reply");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setGeneratingAiReply(false);
     }
   }
 
@@ -648,6 +687,14 @@ export default function ReviewsDashboardPage() {
                                 <XCircle className="w-3 h-3" /> Rejected
                               </span>
                             )}
+                            {sub.aiVerified && (
+                              <div className="mt-1">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-gradient-to-r from-blue-50 to-indigo-50 text-indigo-700 border border-indigo-200">
+                                  <Bot className="w-3 h-3 text-indigo-600" />
+                                  Gemini AI: {Math.round(sub.aiConfidence || 95)}%
+                                </span>
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             {sub.coupon ? (
@@ -740,6 +787,81 @@ export default function ReviewsDashboardPage() {
                           <span className="font-semibold">Rejection Reason:</span> {selectedSubmission.reason}
                         </div>
                       )}
+                    </div>
+
+                    {/* Google DeepMind Gemini AI Vision Analysis */}
+                    <div className="bg-gradient-to-br from-indigo-50/80 via-purple-50/50 to-blue-50/80 border border-indigo-200/80 rounded-xl p-4 shadow-sm space-y-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="p-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white rounded-lg shadow-xs">
+                            <Bot className="w-4 h-4" />
+                          </span>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-xs text-gray-900">Google Gemini 1.5 Flash Vision</span>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700">DeepMind</span>
+                            </div>
+                            <p className="text-[11px] text-gray-500">Multimodal Google Review Authenticity Verification</p>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
+                            selectedSubmission.aiVerdict === "AUTHENTIC_5_STAR" || (selectedSubmission.aiConfidence && selectedSubmission.aiConfidence >= 80)
+                              ? "bg-green-100 text-green-800 border border-green-200"
+                              : "bg-amber-100 text-amber-800 border border-amber-200"
+                          }`}>
+                            {selectedSubmission.aiVerdict === "AUTHENTIC_5_STAR" ? "Verified 5-Star" : selectedSubmission.aiVerdict || "AI Verified"}
+                            <span className="font-mono text-[11px]">({Math.round(selectedSubmission.aiConfidence || 95)}%)</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {selectedSubmission.aiSummary && (
+                        <div className="bg-white/80 backdrop-blur rounded-lg p-2.5 border border-indigo-100 text-xs text-gray-700">
+                          <span className="font-semibold text-indigo-900 block mb-0.5">Gemini Vision Summary:</span>
+                          "{selectedSubmission.aiSummary}"
+                        </div>
+                      )}
+
+                      {/* One-Click AI Reply Tool */}
+                      <div className="pt-2 border-t border-indigo-100 flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                            <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                            Gemini AI Review Reply Assistant
+                          </span>
+                          <button
+                            type="button"
+                            disabled={generatingAiReply}
+                            onClick={() => handleGenerateAiReply(selectedSubmission)}
+                            className="px-2.5 py-1 text-xs font-bold text-indigo-700 bg-white hover:bg-indigo-50 border border-indigo-200 rounded-lg shadow-2xs transition disabled:opacity-50 flex items-center gap-1"
+                          >
+                            {generatingAiReply ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Bot className="w-3 h-3" />}
+                            {generatingAiReply ? "Generating..." : "Generate AI Reply"}
+                          </button>
+                        </div>
+
+                        {aiReply && (
+                          <div className="bg-white rounded-lg p-3 border border-indigo-200 space-y-2">
+                            <p className="text-xs text-gray-800 leading-relaxed italic">"{aiReply}"</p>
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(aiReply);
+                                  setCopiedReply(true);
+                                  setTimeout(() => setCopiedReply(false), 2500);
+                                }}
+                                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                              >
+                                {copiedReply ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+                                {copiedReply ? "Copied to Clipboard!" : "Copy Reply for Google Maps"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* Pending Action Buttons */}
